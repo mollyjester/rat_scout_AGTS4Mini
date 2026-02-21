@@ -1,14 +1,16 @@
 {
-  "configFileVersion": "2.0",
-  "info": {
-    "name": "Rat Scout",
-    "id": "com.mollyjester.ratscout",
+  "configVersion": "v2",
+  "app": {
+    "appId": 1000089,
+    "appName": "Rat Scout",
     "appType": "watchface",
-    "icon": "assets/images/icon.png",
     "version": {
       "code": 1,
       "name": "1.0.0"
-    }
+    },
+    "icon": "icon.png",
+    "vender": "mollyjester",
+    "description": "Rat Scout watchface for Amazfit GTS 4 Mini"
   },
   "permissions": [
     "device:os.date",
@@ -16,12 +18,13 @@
     "data:user.hd.heart_rate",
     "device:basic.battery"
   ],
-  "platforms": [
-    {
-      "name": "gts4mini",
-      "deviceSource": 229
+  "runtime": {
+    "apiVersion": {
+      "compatible": "1.0.0",
+      "target": "1.0.1",
+      "minVersion": "1.0.0"
     }
-  ],
+  },
   "targets": {
     "gts4mini": {
       "module": {
@@ -31,9 +34,20 @@
         "app-side": {
           "path": "app-side/index"
         }
-      }
+      },
+      "platforms": [
+        {
+          "name": "gts4mini",
+          "deviceSource": 229
+        }
+      ],
+      "designWidth": 336
     }
   },
-  "designWidth": 336,
-  "designHeight": 384
+  "i18n": {
+    "en-US": {
+      "appName": "Rat Scout"
+    }
+  },
+  "defaultLanguage": "en-US"
 }
