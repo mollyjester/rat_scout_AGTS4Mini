@@ -16,9 +16,9 @@
  *   - Weekday abbreviation
  */
 
-import { createWidget, widget, align, prop } from '@zos/ui'
+import { WatchFace } from '@zos/app'
+import { createWidget, widget, align, prop, setStatusBarVisible } from '@zos/ui'
 import { Time, Pedometer, Battery, Weather } from '@zos/sensor'
-import { setStatusBarVisible } from '@zos/ui'
 import { messageBuilder } from '@zos/utils'
 
 // ─── Screen dimensions ────────────────────────────────────────────────────────
@@ -62,9 +62,8 @@ const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 let wTime, wDate, wWeek, wWeekday
 let wGlucose, wDelta, wTimeDelta
 let wSunIcon, wSunTime, wMoonIcon, wMoonTime
-let wTemp, wSteps
+let wTemp, wWind, wSteps
 let wBattery, wBatteryBar
-let wStatusBg
 
 // ─── Sensor instances ─────────────────────────────────────────────────────────
 let timeSensor, pedometerSensor, batterySensor, weatherSensor
@@ -82,9 +81,8 @@ let weatherTemp = ''
 let weatherWind = ''
 
 // ─── State ────────────────────────────────────────────────────────────────────
-let initialized = false
-let timerHandle = null
 let lastHour = -1
+let lastBatteryLevel = -1
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -123,7 +121,7 @@ function glucoseColor(valueStr) {
 
 function buildStatusBar() {
   // Dark background strip
-  wStatusBg = createWidget(widget.FILL_RECT, {
+  createWidget(widget.FILL_RECT, {
     x: 0, y: 0, w: SCREEN_W, h: 38,
     color: 0x1A1A1A,
     radius: 0,
@@ -149,11 +147,18 @@ function buildStatusBar() {
     text: '--%',
   })
 
-  // Battery bar (small visual bar, top-right corner)
-  wBatteryBar = createWidget(widget.FILL_RECT, {
-    x: 300, y: 12, w: 30, h: 14,
+  // Battery bar background (dark outline, always full width)
+  createWidget(widget.FILL_RECT, {
+    x: 298, y: 10, w: 34, h: 18,
     color: C_DKGRAY,
     radius: 2,
+  })
+
+  // Battery bar fill (variable width and color, drawn on top of background)
+  wBatteryBar = createWidget(widget.FILL_RECT, {
+    x: 300, y: 12, w: 30, h: 14,
+    color: C_GREEN,
+    radius: 1,
   })
 }
 
@@ -288,8 +293,7 @@ function buildAstronomyWeatherZone() {
 
   // ── Right column: Weather & Steps ─────────────────────────────────────────
 
-  // Temperature + wind speed (top right)
-  // Static icon label
+  // Temperature (top right, first half)
   createWidget(widget.TEXT, {
     x: 168, y: 310, w: 26, h: 36,
     color: C_ORANGE,
@@ -298,9 +302,26 @@ function buildAstronomyWeatherZone() {
     align_v: align.CENTER_V,
     text: '🌡',
   })
-  // Combined temp + wind value (e.g. "-2° 5m/s")
   wTemp = createWidget(widget.TEXT, {
-    x: 192, y: 310, w: 144, h: 36,
+    x: 194, y: 310, w: 62, h: 36,
+    color: C_WHITE,
+    text_size: FONT_SMALL,
+    align_h: align.LEFT,
+    align_v: align.CENTER_V,
+    text: '--',
+  })
+
+  // Wind speed (top right, second half — same row as temperature)
+  createWidget(widget.TEXT, {
+    x: 258, y: 310, w: 26, h: 36,
+    color: C_CYAN,
+    text_size: FONT_SMALL,
+    align_h: align.CENTER_H,
+    align_v: align.CENTER_V,
+    text: '🌬',
+  })
+  wWind = createWidget(widget.TEXT, {
+    x: 284, y: 310, w: 52, h: 36,
     color: C_WHITE,
     text_size: FONT_SMALL,
     align_h: align.LEFT,
@@ -318,7 +339,7 @@ function buildAstronomyWeatherZone() {
     text: '👟',
   })
   wSteps = createWidget(widget.TEXT, {
-    x: 192, y: 348, w: 144, h: 36,
+    x: 194, y: 348, w: 142, h: 36,
     color: C_WHITE,
     text_size: FONT_SMALL,
     align_h: align.LEFT,
@@ -336,10 +357,7 @@ function updateTime() {
 
   wTime.setProperty(prop.TEXT, pad2(h) + ':' + pad2(m))
 
-  // Update battery bar color based on level
-  updateBattery()
-
-  // Hourly vibration placeholder (Zepp OS vibration API)
+  // Update date/week/weekday once per hour (catches midnight transition)
   if (h !== lastHour) {
     lastHour = h
     updateDate(info)
@@ -365,7 +383,9 @@ function updateDate(info) {
 function updateBattery() {
   const level = batterySensor.getCurrent()
   if (level === undefined || level === null) return
+  if (level === lastBatteryLevel) return
 
+  lastBatteryLevel = level
   wBattery.setProperty(prop.TEXT, level + '%')
 
   // Color-code battery bar
@@ -376,7 +396,7 @@ function updateBattery() {
 
   wBatteryBar.setProperty(prop.MORE, {
     color: barColor,
-    w: Math.round(30 * level / 100),
+    w: Math.max(0, Math.round(30 * level / 100)),
   })
 }
 
@@ -420,14 +440,14 @@ function updateAstronomy(data) {
 }
 
 function updateWeather(data) {
-  // Combine temp + wind into one display string: e.g. "-2° 5m/s"
-  if (data.temp !== undefined) weatherTemp = data.temp + '°'
-  if (data.wind !== undefined) weatherWind = data.wind + (data.windUnit || '')
-
-  const display = weatherWind
-    ? weatherTemp + ' ' + weatherWind
-    : weatherTemp
-  if (display) wTemp.setProperty(prop.TEXT, display)
+  if (data.temp !== undefined) {
+    weatherTemp = data.temp + '°'
+    wTemp.setProperty(prop.TEXT, weatherTemp)
+  }
+  if (data.wind !== undefined) {
+    weatherWind = data.wind + (data.windUnit || '')
+    wWind.setProperty(prop.TEXT, weatherWind)
+  }
 }
 
 // ─── App-side message handling ────────────────────────────────────────────────
@@ -484,23 +504,6 @@ function handleAppSideMessage(msg) {
   }
 }
 
-// ─── Periodic refresh ────────────────────────────────────────────────────────
-
-function startTimer() {
-  // Update every 60 seconds — time display is HH:MM (minute precision only)
-  timerHandle = setInterval(() => {
-    updateTime()
-    updateSteps()
-  }, 60000)
-}
-
-function stopTimer() {
-  if (timerHandle !== null) {
-    clearInterval(timerHandle)
-    timerHandle = null
-  }
-}
-
 // ─── Watchface entry point ────────────────────────────────────────────────────
 
 WatchFace({
@@ -530,25 +533,41 @@ WatchFace({
 
     // Try to get weather from built-in sensor first
     try {
-      const w = weatherSensor.getCurrent()
+      const w = weatherSensor.getWeatherInfo()
       if (w) {
-        updateWeather({ temp: w.temp, wind: w.windSpeed, windUnit: 'm/s' })
+        const current = (w.current) || (Array.isArray(w) && w[0]) || w
+        if (current && current.temp !== undefined) {
+          updateWeather({
+            temp: current.temp,
+            wind: current.windSpeed || current.wind || 0,
+            windUnit: 'm/s',
+          })
+        }
       }
     } catch (e) {
       // Built-in weather sensor may not be available
     }
 
+    // Register event-driven sensor callbacks (more efficient than setInterval)
+    timeSensor.onPerMinute(() => {
+      updateTime()
+    })
+    batterySensor.onChange(() => {
+      updateBattery()
+    })
+    pedometerSensor.onChange(() => {
+      updateSteps()
+    })
+
     // Connect to app-side for Dexcom CGM + astronomy data
     setupMessaging()
-
-    // Start periodic refresh
-    startTimer()
-
-    initialized = true
   },
 
   onDestroy() {
-    stopTimer()
+    // Deregister sensor callbacks to prevent leaks
+    try { timeSensor.offPerMinute() } catch (e) {}
+    try { batterySensor.offChange() } catch (e) {}
+    try { pedometerSensor.offChange() } catch (e) {}
     try { messageBuilder.disConnect() } catch (e) {}
   },
 })
