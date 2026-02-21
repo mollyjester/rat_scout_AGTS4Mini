@@ -1,0 +1,96 @@
+name: Build & Release
+
+# Triggered manually from the GitHub Actions UI — no tags required.
+# Always builds from the main branch.
+on:
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: "Release name (e.g. v1.0.1). Leave blank to use the short commit SHA."
+        required: false
+        default: ""
+
+jobs:
+  build-and-release:
+    name: Build watchface and publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create a GitHub Release and upload assets
+
+    steps:
+      # ── 1. Check out main branch ────────────────────────────────────────────
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # ── 2. Set up Node.js ───────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # ── 3. Install Zepp OS build tool ───────────────────────────────────────
+      - name: Install @zeppos/zeus-cli
+        run: npm install -g @zeppos/zeus-cli
+
+      # ── 4. Build the watchface (.zab package) ───────────────────────────────
+      - name: Build watchface
+        run: zeus build
+
+      # ── 5. Locate the produced .zab artifact ────────────────────────────────
+      - name: Find .zab artifact
+        id: find_zab
+        run: |
+          ZAB=$(find . -maxdepth 3 -name "*.zab" \
+                  -not -path "*/node_modules/*" \
+                  -not -path "*/.git/*" \
+                | head -n 1)
+          if [ -z "$ZAB" ]; then
+            echo "ERROR: No .zab file found after build." >&2
+            exit 1
+          fi
+          echo "zab_path=$ZAB" >> "$GITHUB_OUTPUT"
+          echo "zab_name=$(basename "$ZAB")" >> "$GITHUB_OUTPUT"
+          echo "zab_stem=$(basename "$ZAB" .zab)" >> "$GITHUB_OUTPUT"
+
+      # ── 6. Derive a release tag/name ────────────────────────────────────────
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.release_name }}" ]; then
+            TAG="${{ github.event.inputs.release_name }}"
+          else
+            TAG="build-$(git rev-parse --short HEAD)"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # ── 7. Upload artifact for reference ────────────────────────────────────
+      - name: Upload .zab artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.find_zab.outputs.zab_stem }}
+          path: ${{ steps.find_zab.outputs.zab_path }}
+          retention-days: 30
+
+      # ── 8. Create a GitHub Release and attach the .zab file ─────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body: |
+            Rat Scout — Zepp OS watchface for Amazfit GTS 4 Mini
+
+            Built from commit `${{ github.sha }}` on branch `main`.
+
+            ## Install
+            Transfer the `.zab` file to your device via the Zepp app developer mode,
+            or install directly with the Zeus CLI:
+            ```
+            zeus install rat-scout-gts4mini.zab
+            ```
+          files: ${{ steps.find_zab.outputs.zab_path }}
+          draft: false
+          prerelease: false

@@ -1,0 +1,38 @@
+{
+  "configFileVersion": "2.0",
+  "info": {
+    "name": "Rat Scout",
+    "id": "com.mollyjester.ratscout",
+    "appType": "watchface",
+    "icon": "assets/images/icon.png",
+    "version": {
+      "code": 1,
+      "name": "1.0.0"
+    }
+  },
+  "permissions": [
+    "device:os.date",
+    "data:user.hd.step_count",
+    "data:user.hd.heart_rate",
+    "device:basic.battery"
+  ],
+  "platforms": [
+    {
+      "name": "gts4mini",
+      "deviceSource": 229
+    }
+  ],
+  "targets": {
+    "gts4mini": {
+      "module": {
+        "watchface": {
+          "path": "watchface/index"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        }
+      }
+    }
+  },
+  "designWidth": 336
+}
