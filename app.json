@@ -38,7 +38,11 @@
       "platforms": [
         {
           "name": "gts4mini",
-          "deviceSource": 229
+          "deviceSource": 246
+        },
+        {
+          "name": "gts4mini-w",
+          "deviceSource": 247
         }
       ],
       "designWidth": 336
