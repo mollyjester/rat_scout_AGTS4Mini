@@ -35,14 +35,23 @@ const FS_DATE  = 34
 const FS_NORM  = 26
 const FS_SMALL = 20
 
-// ── Moon phase labels (ASCII — device fonts do not carry emoji) ───────────────
-const MOON_PHASE_LABELS = ['NM', 'wC', 'FQ', 'wG', 'FM', 'WG', 'LQ', 'WC']
+// ── Moon phase images ────────────────────────────────────────────────────────
+const MOON_IMGS = [
+  'images/newmoon.png',
+  'images/waxingcrescentmoon.png',
+  'images/firstquartermoon.png',
+  'images/waxinggibbousmoon.png',
+  'images/fullmoon.png',
+  'images/waninggibbousmoon.png',
+  'images/thirdquartermoon.png',
+  'images/waningcrescentmoon.png',
+]
 
 // ── Weekday abbreviations ─────────────────────────────────────────────────────
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-// ── Garbage bag labels ────────────────────────────────────────────────────────
-const GARBAGE_LABEL = { O: 'ORG', G: 'GRY', B: 'BLK' }
+// ── Garbage bag images ────────────────────────────────────────────────────────
+const BAG_IMGS = { O: 'images/organicbag.png', G: 'images/greybag.png', B: 'images/blackbag.png' }
 
 // ── Widget refs (populated in build functions) ────────────────────────────────
 const R = {}
@@ -101,12 +110,8 @@ function buildStatusBar() {
     text: '---',
   })
 
-  R.garbage = mkw(hmUI.widget.TEXT, {
-    x: 84, y: 2, w: 72, h: 38,
-    color: C_CYAN, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '',
-  })
+  R.garbage = mkw(hmUI.widget.IMG, { x: 84, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
+  setp(R.garbage, hmUI.prop.VISIBLE, false)
 
   R.batPct = mkw(hmUI.widget.TEXT, {
     x: 196, y: 2, w: 66, h: 38,
@@ -180,13 +185,7 @@ function buildBottomZone() {
   mkw(widget.FILL_RECT, { x: 168, y: 303, w: 1, h: 79, color: C_DKGRAY })
 
   // ── Left: Sun row ───────────────────────────────────────────────────────────
-  // "SR" = sunrise coming, "SS" = sunset coming
-  R.sunDir = mkw(widget.TEXT, {
-    x: 8, y: 303, w: 38, h: 38,
-    color: C_YELLOW, text_size: FS_SMALL,
-    align_h: align.CENTER_H, align_v: align.CENTER_V,
-    text: 'SR',
-  })
+  R.sunDir = mkw(widget.IMG, { x: 8, y: 306, w: 32, h: 32, src: 'images/sun.png' })
   R.sunTime = mkw(widget.TEXT, {
     x: 48, y: 303, w: 116, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
@@ -195,12 +194,7 @@ function buildBottomZone() {
   })
 
   // ── Left: Moon row ──────────────────────────────────────────────────────────
-  R.moonPhase = mkw(widget.TEXT, {
-    x: 8, y: 343, w: 38, h: 38,
-    color: C_GRAY, text_size: FS_SMALL,
-    align_h: align.CENTER_H, align_v: align.CENTER_V,
-    text: MOON_PHASE_LABELS[0],
-  })
+  R.moonPhase = mkw(widget.IMG, { x: 8, y: 346, w: 32, h: 32, src: MOON_IMGS[0] })
   R.moonTime = mkw(widget.TEXT, {
     x: 48, y: 343, w: 116, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
@@ -209,12 +203,7 @@ function buildBottomZone() {
   })
 
   // ── Right: Temperature row (top) ────────────────────────────────────────────
-  mkw(widget.TEXT, {
-    x: 174, y: 303, w: 22, h: 38,
-    color: C_ORANGE, text_size: FS_SMALL,
-    align_h: align.CENTER_H, align_v: align.CENTER_V,
-    text: 'T',
-  })
+  mkw(widget.IMG, { x: 174, y: 306, w: 22, h: 32, src: 'images/temperature.png' })
   R.temp = mkw(widget.TEXT, {
     x: 198, y: 303, w: 138, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
@@ -223,12 +212,7 @@ function buildBottomZone() {
   })
 
   // ── Right: Wind (bottom-left half) ──────────────────────────────────────────
-  mkw(widget.TEXT, {
-    x: 174, y: 343, w: 22, h: 38,
-    color: C_CYAN, text_size: FS_SMALL,
-    align_h: align.CENTER_H, align_v: align.CENTER_V,
-    text: 'W',
-  })
+  mkw(widget.IMG, { x: 174, y: 346, w: 22, h: 32, src: 'images/wind.png' })
   R.wind = mkw(widget.TEXT, {
     x: 198, y: 343, w: 74, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
@@ -237,12 +221,7 @@ function buildBottomZone() {
   })
 
   // ── Right: Steps (bottom-right half) ────────────────────────────────────────
-  mkw(widget.TEXT, {
-    x: 274, y: 343, w: 20, h: 38,
-    color: C_CYAN, text_size: FS_SMALL,
-    align_h: align.CENTER_H, align_v: align.CENTER_V,
-    text: 'S',
-  })
+  mkw(widget.IMG, { x: 274, y: 346, w: 20, h: 32, src: 'images/steps.png' })
   R.steps = mkw(widget.TEXT, {
     x: 296, y: 343, w: 40, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
@@ -330,11 +309,10 @@ function applyWeather(msg) {
 function applyAstronomy(msg) {
   if (!msg) return
   try {
-    if (msg.sunTime)             setp(R.sunTime,   hmUI.prop.TEXT, msg.sunTime)
-    if (msg.sunIsRising != null) setp(R.sunDir,    hmUI.prop.TEXT, msg.sunIsRising ? 'SR' : 'SS')
-    if (msg.moonTime)            setp(R.moonTime,  hmUI.prop.TEXT, msg.moonTime)
+    if (msg.sunTime)  setp(R.sunTime,  hmUI.prop.TEXT, msg.sunTime)
+    if (msg.moonTime) setp(R.moonTime, hmUI.prop.TEXT, msg.moonTime)
     if (typeof msg.moonPhase === 'number') {
-      setp(R.moonPhase, hmUI.prop.TEXT, MOON_PHASE_LABELS[msg.moonPhase] || MOON_PHASE_LABELS[0])
+      setp(R.moonPhase, hmUI.prop.SRC, MOON_IMGS[msg.moonPhase] || MOON_IMGS[0])
     }
   } catch (e) {}
 }
@@ -342,7 +320,12 @@ function applyAstronomy(msg) {
 function applySettings(msg) {
   if (!msg) return
   try {
-    if (msg.garbageBag) setp(R.garbage, hmUI.prop.TEXT, GARBAGE_LABEL[msg.garbageBag] || '')
+    if (msg.garbageBag && BAG_IMGS[msg.garbageBag]) {
+      setp(R.garbage, hmUI.prop.SRC,     BAG_IMGS[msg.garbageBag])
+      setp(R.garbage, hmUI.prop.VISIBLE, true)
+    } else {
+      setp(R.garbage, hmUI.prop.VISIBLE, false)
+    }
   } catch (e) {}
 }
 
