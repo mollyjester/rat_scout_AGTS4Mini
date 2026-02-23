@@ -16,7 +16,9 @@
     "device:os.date",
     "data:user.hd.step_count",
     "data:user.hd.heart_rate",
-    "device:basic.battery"
+    "device:basic.battery",
+    "data:user.hd.weather",
+    "device:app-side.network"
   ],
   "runtime": {
     "apiVersion": {
@@ -29,7 +31,11 @@
     "gts4mini": {
       "module": {
         "watchface": {
-          "path": "watchface/index"
+          "path": "watchface/index",
+          "main": 1,
+          "editable": 1,
+          "lockscreen": 1,
+          "hightCost": 1
         },
         "app-side": {
           "path": "app-side/index"
@@ -53,5 +59,6 @@
       "appName": "Rat Scout"
     }
   },
-  "defaultLanguage": "en-US"
+  "defaultLanguage": "en-US",
+  "debug": false
 }
