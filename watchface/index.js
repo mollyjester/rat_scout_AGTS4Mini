@@ -11,10 +11,7 @@
  *   y=302  h=82   Bottom zone: [sun/moon] | [temp / wind+steps]
  */
 
-import WatchFace from '@zos/app'
-import { createWidget, widget, align, prop, setStatusBarVisible } from '@zos/ui'
-import { Time, Pedometer, Battery } from '@zos/sensor'
-import { messageBuilder } from '@zos/utils'
+// API 1.0 — globals: hmUI, hmSensor, hmBle, WatchFace (no @zos/* imports)
 
 // ── Screen ───────────────────────────────────────────────────────────────────
 const W = 336
@@ -82,7 +79,7 @@ function glucoseColor(str) {
 
 /** Safe createWidget — returns null instead of throwing */
 function mkw(type, params) {
-  try { return createWidget(type, params) } catch (e) { return null }
+  try { return hmUI.createWidget(type, params) } catch (e) { return null }
 }
 
 /** Safe setProperty — silently skips null widget refs */
@@ -95,95 +92,84 @@ function setp(wref, key, val) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildStatusBar() {
-  // Dark background strip
-  mkw(widget.FILL_RECT, { x: 0, y: 0, w: W, h: 42, color: C_BAR, radius: 0 })
+  mkw(hmUI.widget.FILL_RECT, { x: 0, y: 0, w: W, h: 42, color: C_BAR, radius: 0 })
 
-  // Weekday abbreviation (left)
-  R.weekday = mkw(widget.TEXT, {
+  R.weekday = mkw(hmUI.widget.TEXT, {
     x: 8, y: 2, w: 72, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '---',
   })
 
-  // Garbage bag indicator (centre-left)
-  R.garbage = mkw(widget.TEXT, {
+  R.garbage = mkw(hmUI.widget.TEXT, {
     x: 84, y: 2, w: 72, h: 38,
     color: C_CYAN, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '',
   })
 
-  // Battery percentage text
-  R.batPct = mkw(widget.TEXT, {
+  R.batPct = mkw(hmUI.widget.TEXT, {
     x: 196, y: 2, w: 66, h: 38,
     color: C_GRAY, text_size: FS_SMALL,
-    align_h: align.RIGHT, align_v: align.CENTER_V,
+    align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
     text: '--%',
   })
 
-  // Battery bar — dark background
-  mkw(widget.FILL_RECT, { x: 266, y: 13, w: 62, h: 16, color: C_DKGRAY, radius: 2 })
+  mkw(hmUI.widget.FILL_RECT, { x: 266, y: 13, w: 62, h: 16, color: C_DKGRAY, radius: 2 })
 
-  // Battery bar — coloured fill (width updated dynamically)
-  R.batBar = mkw(widget.FILL_RECT, {
+  R.batBar = mkw(hmUI.widget.FILL_RECT, {
     x: 268, y: 15, w: 58, h: 12, color: C_GREEN, radius: 1,
   })
 }
 
 function buildTimeZone() {
-  R.time = mkw(widget.TEXT, {
+  R.time = mkw(hmUI.widget.TEXT, {
     x: 0, y: 44, w: W, h: 116,
     color: C_WHITE, text_size: FS_TIME,
-    align_h: align.CENTER_H, align_v: align.CENTER_V,
+    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     text: '--:--',
   })
 }
 
 function buildGlucoseZone() {
-  mkw(widget.FILL_RECT, { x: 8, y: 161, w: W - 16, h: 1, color: C_DKGRAY })
+  mkw(hmUI.widget.FILL_RECT, { x: 8, y: 161, w: W - 16, h: 1, color: C_DKGRAY })
 
-  // Large CGM glucose reading (left half)
-  R.glucose = mkw(widget.TEXT, {
+  R.glucose = mkw(hmUI.widget.TEXT, {
     x: 0, y: 162, w: 200, h: 82,
     color: C_GREEN, text_size: FS_GLUC,
-    align_h: align.RIGHT, align_v: align.CENTER_V,
+    align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
     text: '---',
   })
 
-  // Rate-of-change delta (top-right of glucose zone)
-  R.delta = mkw(widget.TEXT, {
+  R.delta = mkw(hmUI.widget.TEXT, {
     x: 208, y: 164, w: 128, h: 36,
     color: C_CYAN, text_size: FS_NORM,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '',
   })
 
-  // Minutes since last reading (bottom-right of glucose zone)
-  R.timeDelta = mkw(widget.TEXT, {
+  R.timeDelta = mkw(hmUI.widget.TEXT, {
     x: 208, y: 204, w: 128, h: 36,
     color: C_GRAY, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '',
   })
 }
 
 function buildDateZone() {
-  mkw(widget.FILL_RECT, { x: 8, y: 245, w: W - 16, h: 1, color: C_DKGRAY })
+  mkw(hmUI.widget.FILL_RECT, { x: 8, y: 245, w: W - 16, h: 1, color: C_DKGRAY })
 
-  // Date: DD.MM (left)
-  R.date = mkw(widget.TEXT, {
+  R.date = mkw(hmUI.widget.TEXT, {
     x: 0, y: 247, w: 176, h: 52,
     color: C_WHITE, text_size: FS_DATE,
-    align_h: align.RIGHT, align_v: align.CENTER_V,
+    align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
     text: '--:--',
   })
 
-  // ISO week: Wnn (right)
-  R.week = mkw(widget.TEXT, {
+  R.week = mkw(hmUI.widget.TEXT, {
     x: 184, y: 247, w: 152, h: 52,
     color: C_GRAY, text_size: FS_DATE,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: 'W--',
   })
 }
@@ -272,43 +258,49 @@ function buildBottomZone() {
 function updateTime() {
   if (!_time) return
   try {
-    const t = _time.getTime()
-    setp(R.time, prop.TEXT, pad2(t.hour) + ':' + pad2(t.minute))
-    if (t.hour !== _lastHour) {
-      _lastHour = t.hour
-      updateDate(t)
+    const h = _time.hour
+    const m = _time.minute
+    if (h === undefined) return
+    setp(R.time, hmUI.prop.TEXT, pad2(h) + ':' + pad2(m))
+    if (h !== _lastHour) {
+      _lastHour = h
+      updateDate()
     }
   } catch (e) {}
 }
 
-function updateDate(t) {
+function updateDate() {
+  if (!_time) return
   try {
-    const info = t || (_time ? _time.getTime() : null)
-    if (!info) return
-    setp(R.date,    prop.TEXT, pad2(info.day) + '.' + pad2(info.month))
-    setp(R.weekday, prop.TEXT, WEEKDAYS[info.week] || '---')
-    const week = isoWeek(new Date(info.year, info.month - 1, info.day))
-    setp(R.week, prop.TEXT, 'W' + pad2(week))
+    const day   = _time.day
+    const month = _time.month
+    const year  = _time.year
+    const week  = _time.week   // 0=Sun … 6=Sat
+    if (day === undefined) return
+    setp(R.date,    hmUI.prop.TEXT, pad2(day) + '.' + pad2(month))
+    setp(R.weekday, hmUI.prop.TEXT, WEEKDAYS[week] || '---')
+    const wn = isoWeek(new Date(year, month - 1, day))
+    setp(R.week, hmUI.prop.TEXT, 'W' + pad2(wn))
   } catch (e) {}
 }
 
 function updateBattery() {
   if (!_bat) return
   try {
-    const lvl = _bat.getCurrent()
+    const lvl = _bat.current
     if (lvl === undefined || lvl === null) return
-    setp(R.batPct, prop.TEXT, lvl + '%')
+    setp(R.batPct, hmUI.prop.TEXT, lvl + '%')
     const color = lvl > 50 ? C_GREEN : lvl > 20 ? C_YELLOW : C_RED
-    setp(R.batBar, prop.MORE, { color, w: Math.max(2, Math.round(58 * lvl / 100)) })
+    setp(R.batBar, hmUI.prop.MORE, { color, w: Math.max(2, Math.round(58 * lvl / 100)) })
   } catch (e) {}
 }
 
 function updateSteps() {
   if (!_ped) return
   try {
-    const s = _ped.getStepCount()
+    const s = _ped.current
     if (s === undefined || s === null) return
-    setp(R.steps, prop.TEXT, s >= 1000 ? (s / 1000).toFixed(1) + 'k' : '' + s)
+    setp(R.steps, hmUI.prop.TEXT, s >= 1000 ? (s / 1000).toFixed(1) + 'k' : '' + s)
   } catch (e) {}
 }
 
@@ -320,29 +312,29 @@ function applyGlucose(msg) {
   if (!msg) return
   try {
     const val = String(msg.value || '---')
-    setp(R.glucose,   prop.TEXT, val)
-    setp(R.glucose,   prop.MORE, { color: glucoseColor(val) })
-    setp(R.delta,     prop.TEXT, msg.delta     || '')
-    setp(R.timeDelta, prop.TEXT, msg.timeDelta ? msg.timeDelta + 'm' : '')
+    setp(R.glucose,   hmUI.prop.TEXT, val)
+    setp(R.glucose,   hmUI.prop.MORE, { color: glucoseColor(val) })
+    setp(R.delta,     hmUI.prop.TEXT, msg.delta     || '')
+    setp(R.timeDelta, hmUI.prop.TEXT, msg.timeDelta ? msg.timeDelta + 'm' : '')
   } catch (e) {}
 }
 
 function applyWeather(msg) {
   if (!msg) return
   try {
-    if (msg.temp !== undefined) setp(R.temp, prop.TEXT, msg.temp + (msg.tempUnit || ''))
-    if (msg.wind !== undefined) setp(R.wind, prop.TEXT, msg.wind + (msg.windUnit || ''))
+    if (msg.temp !== undefined) setp(R.temp, hmUI.prop.TEXT, msg.temp + (msg.tempUnit || ''))
+    if (msg.wind !== undefined) setp(R.wind, hmUI.prop.TEXT, msg.wind + (msg.windUnit || ''))
   } catch (e) {}
 }
 
 function applyAstronomy(msg) {
   if (!msg) return
   try {
-    if (msg.sunTime)             setp(R.sunTime,   prop.TEXT, msg.sunTime)
-    if (msg.sunIsRising != null) setp(R.sunDir,    prop.TEXT, msg.sunIsRising ? 'SR' : 'SS')
-    if (msg.moonTime)            setp(R.moonTime,  prop.TEXT, msg.moonTime)
+    if (msg.sunTime)             setp(R.sunTime,   hmUI.prop.TEXT, msg.sunTime)
+    if (msg.sunIsRising != null) setp(R.sunDir,    hmUI.prop.TEXT, msg.sunIsRising ? 'SR' : 'SS')
+    if (msg.moonTime)            setp(R.moonTime,  hmUI.prop.TEXT, msg.moonTime)
     if (typeof msg.moonPhase === 'number') {
-      setp(R.moonPhase, prop.TEXT, MOON_PHASE_LABELS[msg.moonPhase] || MOON_PHASE_LABELS[0])
+      setp(R.moonPhase, hmUI.prop.TEXT, MOON_PHASE_LABELS[msg.moonPhase] || MOON_PHASE_LABELS[0])
     }
   } catch (e) {}
 }
@@ -350,7 +342,7 @@ function applyAstronomy(msg) {
 function applySettings(msg) {
   if (!msg) return
   try {
-    if (msg.garbageBag) setp(R.garbage, prop.TEXT, GARBAGE_LABEL[msg.garbageBag] || '')
+    if (msg.garbageBag) setp(R.garbage, hmUI.prop.TEXT, GARBAGE_LABEL[msg.garbageBag] || '')
   } catch (e) {}
 }
 
@@ -363,37 +355,111 @@ function applyAll(msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Messaging — watch-side
+// Messaging — watch side via hmBle (MessageBuilder-compatible framing)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function setupMessaging() {
-  try {
-    messageBuilder.connect()
+let _blePort = 0
+let _traceId = 10000
+let _spanId  = 1000
+let _pending = {}
+let _appId   = 0
 
-    // Listen for app-side initiated pushes
-    messageBuilder.on('call', (data) => {
+function _u16(b, o, v) { b[o] = v & 0xFF; b[o+1] = (v>>8) & 0xFF }
+function _u32(b, o, v) { b[o] = v&0xFF; b[o+1]=(v>>8)&0xFF; b[o+2]=(v>>16)&0xFF; b[o+3]=(v>>24)&0xFF }
+function _r32(b, o)    { return (b[o]|(b[o+1]<<8)|(b[o+2]<<16)|(b[o+3]<<24))>>>0 }
+
+function _s2b(str) {
+  var o=[]; for(var i=0;i<str.length;i++){var c=str.charCodeAt(i); if(c<0x80)o.push(c); else if(c<0x800)o.push(0xC0|(c>>6),0x80|(c&63)); else o.push(0xE0|(c>>12),0x80|((c>>6)&63),0x80|(c&63));} return o;
+}
+function _b2s(arr) {
+  var s='',i=0; while(i<arr.length){var b=arr[i++]; if(b<0x80)s+=String.fromCharCode(b); else if((b&0xE0)===0xC0)s+=String.fromCharCode(((b&31)<<6)|(arr[i++]&63)); else s+=String.fromCharCode(((b&15)<<12)|((arr[i++]&63)<<6)|(arr[i++]&63));} return s;
+}
+
+function _buildPkt(outerType, port2, appId, payBytes) {
+  var buf = new Uint8Array(16 + payBytes.length)
+  buf[0]=0x01; buf[1]=0x01; _u16(buf,2,outerType); _u16(buf,4,20); _u16(buf,6,port2)
+  _u32(buf,8,appId); _u32(buf,12,0)
+  for(var i=0;i<payBytes.length;i++) buf[16+i]=payBytes[i]
+  return buf
+}
+
+function _buildInner(traceId, totalLen, dataBytes, payloadType) {
+  _spanId++
+  var buf = new Uint8Array(66 + dataBytes.length), o=0
+  _u32(buf,o,traceId);  o+=4
+  _u32(buf,o,0);        o+=4   // parentId
+  _u32(buf,o,_spanId);  o+=4
+  _u32(buf,o,1);        o+=4   // seqId=1
+  _u32(buf,o,totalLen); o+=4
+  _u32(buf,o,dataBytes.length); o+=4
+  buf[o++]=payloadType
+  buf[o++]=0x01          // opCode=Finished
+  var ts=(Date.now()%10000000)|0; _u32(buf,o,ts); o+=4
+  for(var i=1;i<8;i++){_u32(buf,o,0);o+=4}  // timestamps 2-8
+  _u32(buf,o,0);o+=4; _u32(buf,o,0);o+=4  // extra1,2
+  for(var j=0;j<dataBytes.length;j++) buf[o+j]=dataBytes[j]
+  return buf
+}
+
+function _sendJson(traceId, json, payloadType) {
+  try {
+    var bytes  = _s2b(JSON.stringify(json))
+    var inner  = Array.from(_buildInner(traceId, bytes.length, bytes, payloadType))
+    var outer  = _buildPkt(0x4, _blePort, _appId, inner)
+    hmBle.send(outer.buffer, outer.byteLength)
+  } catch(e) {}
+}
+
+function setupMessaging() {
+  if (typeof hmBle === 'undefined') return
+  try {
+    try { _appId = hmApp.packageInfo().appId } catch(e) { _appId = 1000089 }
+
+    hmBle.createConnect(function(index, data, size) {
       try {
-        const msg = messageBuilder.buf2Json(data.payload)
-        if (!msg) return
-        switch (msg.type) {
-          case 'glucose':   applyGlucose(msg);   break
-          case 'weather':   applyWeather(msg);   break
-          case 'astronomy': applyAstronomy(msg); break
-          case 'settings':  applySettings(msg);  break
-          case 'all':       applyAll(msg);        break
+        var arr = new Uint8Array(data)
+        if (arr.length < 16) return
+        var outerType = arr[2] | (arr[3]<<8)
+        var port2     = arr[4] | (arr[5]<<8)
+
+        if (outerType === 0x1) {
+          // Shake reply — learn appSidePort, then request data
+          _blePort = port2
+          _traceId++
+          _pending[_traceId] = 1
+          _sendJson(_traceId, { action: 'fetchAll' }, 0x01)
+          return
         }
-      } catch (e) {}
+
+        if ((outerType === 0x4 || outerType === 0x5) && arr.length > 82) {
+          try {
+            var traceId   = _r32(arr, 16)
+            var totalLen  = _r32(arr, 28)
+            var payLen    = _r32(arr, 32)
+            var payType   = arr[36]
+            var dataStart = 82
+            var payload   = arr.slice(dataStart, dataStart + payLen)
+            var str = _b2s(Array.from(payload))
+            var msg = JSON.parse(str)
+            if (payType === 0x02 && _pending[traceId]) {
+              delete _pending[traceId]
+              if (msg && msg.data) applyAll(msg.data)
+            } else if (payType === 0x03 && msg) {
+              if (msg.type === 'all')       applyAll(msg)
+              if (msg.type === 'glucose')   applyGlucose(msg)
+              if (msg.type === 'weather')   applyWeather(msg)
+              if (msg.type === 'astronomy') applyAstronomy(msg)
+              if (msg.type === 'settings')  applySettings(msg)
+            }
+          } catch(e) {}
+        }
+      } catch(e) {}
     })
 
-    // Request initial full data set from app-side
-    messageBuilder
-      .request({ action: 'fetchAll' }, { timeout: 60000 })
-      .then((res) => {
-        try { if (res && res.data) applyAll(res.data) } catch (e) {}
-      })
-      .catch(() => {})
-
-  } catch (e) {}
+    // Send shake handshake to initiate connection
+    var shake = _buildPkt(0x1, 0, _appId, [_appId & 0xFF])
+    hmBle.send(shake.buffer, shake.byteLength)
+  } catch(e) {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -402,38 +468,34 @@ function setupMessaging() {
 
 WatchFace({
   onInit() {
-    try { setStatusBarVisible(false) } catch (e) {}
-    try { _time = new Time() }      catch (e) {}
-    try { _ped  = new Pedometer() } catch (e) {}
-    try { _bat  = new Battery() }   catch (e) {}
+    try { _time = hmSensor.createSensor(hmSensor.id.TIME)    } catch (e) {}
+    try { _ped  = hmSensor.createSensor(hmSensor.id.STEP)    } catch (e) {}
+    try { _bat  = hmSensor.createSensor(hmSensor.id.BATTERY) } catch (e) {}
   },
 
   build() {
-    try { buildStatusBar() }   catch (e) {}
-    try { buildTimeZone() }    catch (e) {}
+    try { buildStatusBar()   } catch (e) {}
+    try { buildTimeZone()    } catch (e) {}
     try { buildGlucoseZone() } catch (e) {}
-    try { buildDateZone() }    catch (e) {}
-    try { buildBottomZone() }  catch (e) {}
+    try { buildDateZone()    } catch (e) {}
+    try { buildBottomZone()  } catch (e) {}
 
-    // Populate from on-device sensors immediately
     updateTime()
     updateDate()
     updateBattery()
     updateSteps()
 
-    // Register sensor callbacks for live updates
-    if (_time) try { _time.onPerMinute(() => { updateTime(); updateSteps() }) } catch (e) {}
-    if (_bat)  try { _bat.onChange(() => { updateBattery() }) }                  catch (e) {}
-    if (_ped)  try { _ped.onChange(() => { updateSteps() }) }                    catch (e) {}
+    if (_time) try { _time.addEventListener(_time.event.MINUTEEND, function() { updateTime(); updateSteps() }) } catch (e) {}
+    if (_bat)  try { _bat.addEventListener(_bat.event.POWER, function() { updateBattery() }) } catch (e) {}
+    if (_ped)  try { _ped.addEventListener(hmSensor.event.CHANGE, function() { updateSteps() }) } catch (e) {}
 
-    // Connect to phone for remote data (Dexcom + weather + astronomy)
     setupMessaging()
   },
 
   onDestroy() {
-    try { if (_time) _time.offPerMinute() } catch (e) {}
-    try { if (_bat)  _bat.offChange() }     catch (e) {}
-    try { if (_ped)  _ped.offChange() }     catch (e) {}
-    try { messageBuilder.disConnect() }     catch (e) {}
+    try { if (_time) _time.removeEventListener(_time.event.MINUTEEND) } catch (e) {}
+    try { if (_bat)  _bat.removeEventListener(_bat.event.POWER) }       catch (e) {}
+    try { if (_ped)  _ped.removeEventListener(hmSensor.event.CHANGE) }  catch (e) {}
+    try { if (typeof hmBle !== 'undefined') hmBle.disConnect() }        catch (e) {}
   },
 })
