@@ -270,7 +270,15 @@ function computeGarbageBag() {
 // Settings helper
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Override settings received from the watch side (written by companion app)
+let _overrideSettings = null
+
 function getSetting(key, fallback) {
+  // 1. Check override settings (from companion app via BLE)
+  if (_overrideSettings && _overrideSettings[key] !== undefined && _overrideSettings[key] !== '') {
+    return _overrideSettings[key]
+  }
+  // 2. Fall back to own settingsStorage
   try {
     const v = settingsStorage.getItem(key)
     return (v !== null && v !== undefined && v !== '') ? v : fallback
@@ -289,11 +297,71 @@ function getLocation() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// IP-based geolocation fallback
+// ─────────────────────────────────────────────────────────────────────────────
+// When latitude/longitude are not set, auto-detect from IP address.
+// Uses ip-api.com (free, no API key required, 45 req/min).
+// Falls back to ipapi.co if ip-api.com fails.
+
+async function fetchLocationByIp() {
+  // Try ip-api.com first (no key needed)
+  try {
+    const resp = await fetch({
+      url: 'http://ip-api.com/json/?fields=status,lat,lon',
+      method: 'GET',
+    })
+    if (resp && resp.status === 200) {
+      const data = JSON.parse(await resp.text())
+      if (data.status === 'success' && data.lat && data.lon) {
+        return { lat: data.lat, lon: data.lon }
+      }
+    }
+  } catch (e) {}
+
+  // Fallback: ipapi.co (no key needed, 1000 req/day)
+  try {
+    const resp = await fetch({
+      url: 'https://ipapi.co/json/',
+      method: 'GET',
+    })
+    if (resp && resp.status === 200) {
+      const data = JSON.parse(await resp.text())
+      if (data.latitude && data.longitude) {
+        return { lat: data.latitude, lon: data.longitude }
+      }
+    }
+  } catch (e) {}
+
+  return null
+}
+
+/**
+ * Ensure we have coordinates. If not in settings, auto-detect from IP
+ * and persist the result into settingsStorage so the Settings App can show them.
+ * @returns {{ lat: number|null, lon: number|null }}
+ */
+async function ensureLocation() {
+  let { lat, lon } = getLocation()
+  if (lat !== null && lon !== null) return { lat, lon }
+
+  const ipLoc = await fetchLocationByIp()
+  if (ipLoc) {
+    try {
+      settingsStorage.setItem('latitude',  String(ipLoc.lat))
+      settingsStorage.setItem('longitude', String(ipLoc.lon))
+    } catch (e) {}
+    return { lat: ipLoc.lat, lon: ipLoc.lon }
+  }
+
+  return { lat: null, lon: null }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Master fetch — gather everything in parallel
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function fetchAll() {
-  const { lat, lon } = getLocation()
+  const { lat, lon } = await ensureLocation()
 
   const [glucose, weather, astronomy] = await Promise.all([
     fetchGlucose(),
@@ -327,12 +395,18 @@ async function fetchAll() {
 AppSideService({
   onInit() {
     try {
-      messageBuilder.connect()
+      messageBuilder.listen(() => {})
 
       messageBuilder.on('request', async (ctx) => {
         try {
           const payload = messageBuilder.buf2Json(ctx.request.payload)
           const action  = payload && payload.action
+
+          // Accept settings override from the watch (companion app file)
+          if (payload && payload.settings && typeof payload.settings === 'object') {
+            _overrideSettings = payload.settings
+            console.log('[RatScout] Using ' + Object.keys(payload.settings).length + ' override settings from companion app')
+          }
 
           if (action === 'fetchAll' || action === 'fetchGlucose') {
             const data = await fetchAll()
@@ -344,6 +418,7 @@ AppSideService({
           try { ctx.response({ data: { error: 'internal error' } }) } catch (e2) {}
         }
       })
+
     } catch (e) {}
   },
 

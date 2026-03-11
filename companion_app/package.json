@@ -1,0 +1,9 @@
+{
+  "name": "rat-scout-settings",
+  "version": "1.0.0",
+  "description": "Settings companion for the Rat Scout watchface",
+  "main": "app.js",
+  "dependencies": {
+    "@zeppos/zml": "^0.0.9"
+  }
+}

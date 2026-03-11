@@ -61,6 +61,11 @@ let _time, _ped, _bat
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _lastHour = -1
+let _fileSettings = null   // settings read from companion app's hmFS file
+
+// ── Companion app integration (appId for cross-app file paths) ───────────────
+var COMPANION_APP_ID = 1000090
+var SETTINGS_FILE    = 'rat_scout_settings.json'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -338,6 +343,32 @@ function applyAll(msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Read settings from companion app's hmFS file
+// ─────────────────────────────────────────────────────────────────────────────
+
+function readSettingsFile() {
+  if (typeof hmFS === 'undefined') return null
+  // Try multiple paths — cross-app write may land in our dir or the companion's
+  var paths = [SETTINGS_FILE, '../' + COMPANION_APP_ID + '/' + SETTINGS_FILE]
+  for (var p = 0; p < paths.length; p++) {
+    try {
+      var fd = hmFS.open(paths[p], hmFS.O_RDONLY)
+      if (fd === undefined || fd === null || fd < 0) continue
+      var buf = new ArrayBuffer(4096)
+      var n   = hmFS.read(fd, buf, 0, 4096)
+      hmFS.close(fd)
+      if (n && n > 0) {
+        var arr = new Uint8Array(buf, 0, n)
+        var str = _b2s(Array.from(arr))
+        var obj = JSON.parse(str)
+        if (obj && typeof obj === 'object') return obj
+      }
+    } catch (e) {}
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Messaging — watch side via hmBle (MessageBuilder-compatible framing)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -410,7 +441,9 @@ function setupMessaging() {
           _blePort = port2
           _traceId++
           _pending[_traceId] = 1
-          _sendJson(_traceId, { action: 'fetchAll' }, 0x01)
+          var req = { action: 'fetchAll' }
+          if (_fileSettings) req.settings = _fileSettings
+          _sendJson(_traceId, req, 0x01)
           return
         }
 
@@ -471,6 +504,9 @@ WatchFace({
     if (_time) try { _time.addEventListener(_time.event.MINUTEEND, function() { updateTime(); updateSteps() }) } catch (e) {}
     if (_bat)  try { _bat.addEventListener(_bat.event.POWER, function() { updateBattery() }) } catch (e) {}
     if (_ped)  try { _ped.addEventListener(hmSensor.event.CHANGE, function() { updateSteps() }) } catch (e) {}
+
+    // Read settings from companion app's file (if available)
+    try { _fileSettings = readSettingsFile() } catch (e) {}
 
     setupMessaging()
   },
