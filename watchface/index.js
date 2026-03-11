@@ -61,11 +61,9 @@ let _time, _ped, _bat
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _lastHour = -1
-let _fileSettings = null   // settings read from companion app's hmFS file
 
-// ── Companion app integration (appId for cross-app file paths) ───────────────
+// ── Companion app integration (appId for BLE routing) ────────────────────────
 var COMPANION_APP_ID = 1000090
-var SETTINGS_FILE    = 'rat_scout_settings.json'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -346,28 +344,6 @@ function applyAll(msg) {
 // Read settings from companion app's hmFS file
 // ─────────────────────────────────────────────────────────────────────────────
 
-function readSettingsFile() {
-  if (typeof hmFS === 'undefined') return null
-  // Try multiple paths — cross-app write may land in our dir or the companion's
-  var paths = [SETTINGS_FILE, '../' + COMPANION_APP_ID + '/' + SETTINGS_FILE]
-  for (var p = 0; p < paths.length; p++) {
-    try {
-      var fd = hmFS.open(paths[p], hmFS.O_RDONLY)
-      if (fd === undefined || fd === null || fd < 0) continue
-      var buf = new ArrayBuffer(4096)
-      var n   = hmFS.read(fd, buf, 0, 4096)
-      hmFS.close(fd)
-      if (n && n > 0) {
-        var arr = new Uint8Array(buf, 0, n)
-        var str = _b2s(Array.from(arr))
-        var obj = JSON.parse(str)
-        if (obj && typeof obj === 'object') return obj
-      }
-    } catch (e) {}
-  }
-  return null
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Messaging — watch side via hmBle (MessageBuilder-compatible framing)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -377,6 +353,13 @@ let _traceId = 10000
 let _spanId  = 1000
 let _pending = {}
 let _appId   = 0
+let _bleConnected = false
+let _shakeRetries = 0
+let _shakeTimer   = null
+let _fetchTimer   = null
+var SHAKE_MAX_RETRIES = 15
+var SHAKE_BASE_DELAY  = 3000   // 3 s, increases with each retry
+var FETCH_INTERVAL    = 300000 // 5 min
 
 function _u16(b, o, v) { b[o] = v & 0xFF; b[o+1] = (v>>8) & 0xFF }
 function _u32(b, o, v) { b[o] = v&0xFF; b[o+1]=(v>>8)&0xFF; b[o+2]=(v>>16)&0xFF; b[o+3]=(v>>24)&0xFF }
@@ -424,10 +407,53 @@ function _sendJson(traceId, json, payloadType) {
   } catch(e) {}
 }
 
+function _sendShake() {
+  try {
+    var shake = _buildPkt(0x1, 0, _appId, [_appId & 0xFF])
+    hmBle.send(shake.buffer, shake.byteLength)
+  } catch(e) {}
+}
+
+function _scheduleShakeRetry() {
+  if (_bleConnected || _shakeRetries >= SHAKE_MAX_RETRIES) return
+  if (_shakeTimer) { try { timer.stopTimer(_shakeTimer) } catch(e) {} _shakeTimer = null }
+  var delay = Math.min(SHAKE_BASE_DELAY * (_shakeRetries + 1), 15000)
+  _shakeTimer = timer.createTimer(delay, 0, function() {
+    _shakeTimer = null
+    if (_bleConnected) return
+    _shakeRetries++
+    _sendShake()
+    _scheduleShakeRetry()
+  })
+}
+
+function _sendFetchAll() {
+  if (!_bleConnected) return
+  try {
+    _traceId++
+    _pending[_traceId] = 1
+    _sendJson(_traceId, { action: 'fetchAll' }, 0x01)
+  } catch(e) {}
+}
+
+function _startPeriodicFetch() {
+  if (_fetchTimer) return
+  _fetchTimer = timer.createTimer(FETCH_INTERVAL, FETCH_INTERVAL, function() {
+    _sendFetchAll()
+  })
+}
+
+function _stopTimers() {
+  if (_shakeTimer)  { try { timer.stopTimer(_shakeTimer)  } catch(e) {} _shakeTimer  = null }
+  if (_fetchTimer)  { try { timer.stopTimer(_fetchTimer)  } catch(e) {} _fetchTimer  = null }
+}
+
 function setupMessaging() {
   if (typeof hmBle === 'undefined') return
   try {
-    try { _appId = hmApp.packageInfo().appId } catch(e) { _appId = 1000089 }
+    // Use companion app's appId for BLE — the watchface's own side service
+    // cannot launch (zeus bridge doesn't extract side service for watchfaces)
+    _appId = COMPANION_APP_ID
 
     hmBle.createConnect(function(index, data, size) {
       try {
@@ -437,29 +463,37 @@ function setupMessaging() {
         var port2     = arr[4] | (arr[5]<<8)
 
         if (outerType === 0x1) {
-          // Shake reply — learn appSidePort, then request data
+          // Shake reply — side service is up, learn appSidePort
+          _bleConnected = true
+          _shakeRetries = 0
+          if (_shakeTimer) { try { timer.stopTimer(_shakeTimer) } catch(e) {} _shakeTimer = null }
           _blePort = port2
-          _traceId++
-          _pending[_traceId] = 1
-          var req = { action: 'fetchAll' }
-          if (_fileSettings) req.settings = _fileSettings
-          _sendJson(_traceId, req, 0x01)
+          _sendFetchAll()
+          _startPeriodicFetch()
+          return
+        }
+
+        if (outerType === 0x2) {
+          // Shake error — side service not ready yet, schedule retry
+          _scheduleShakeRetry()
           return
         }
 
         if ((outerType === 0x4 || outerType === 0x5) && arr.length > 82) {
           try {
             var traceId   = _r32(arr, 16)
-            var totalLen  = _r32(arr, 28)
-            var payLen    = _r32(arr, 32)
-            var payType   = arr[36]
+            var totalLen  = _r32(arr, 32)
+            var payLen    = _r32(arr, 36)
+            var payType   = arr[40]
             var dataStart = 82
             var payload   = arr.slice(dataStart, dataStart + payLen)
             var str = _b2s(Array.from(payload))
             var msg = JSON.parse(str)
             if (payType === 0x02 && _pending[traceId]) {
               delete _pending[traceId]
-              if (msg && msg.data) applyAll(msg.data)
+              // ZML wraps responses as {result: data}, messageBuilder uses {data: data}
+              var body = (msg && msg.result) || (msg && msg.data) || msg
+              if (body) applyAll(body)
             } else if (payType === 0x03 && msg) {
               if (msg.type === 'all')       applyAll(msg)
               if (msg.type === 'glucose')   applyGlucose(msg)
@@ -472,9 +506,11 @@ function setupMessaging() {
       } catch(e) {}
     })
 
-    // Send shake handshake to initiate connection
-    var shake = _buildPkt(0x1, 0, _appId, [_appId & 0xFF])
-    hmBle.send(shake.buffer, shake.byteLength)
+    // Send initial shake handshake
+    _sendShake()
+    // If it fails, the outerType=0x02 handler will trigger retries
+    // Also schedule a safety-net retry in case no response at all
+    _scheduleShakeRetry()
   } catch(e) {}
 }
 
@@ -505,13 +541,11 @@ WatchFace({
     if (_bat)  try { _bat.addEventListener(_bat.event.POWER, function() { updateBattery() }) } catch (e) {}
     if (_ped)  try { _ped.addEventListener(hmSensor.event.CHANGE, function() { updateSteps() }) } catch (e) {}
 
-    // Read settings from companion app's file (if available)
-    try { _fileSettings = readSettingsFile() } catch (e) {}
-
     setupMessaging()
   },
 
   onDestroy() {
+    _stopTimers()
     try { if (_time) _time.removeEventListener(_time.event.MINUTEEND) } catch (e) {}
     try { if (_bat)  _bat.removeEventListener(_bat.event.POWER) }       catch (e) {}
     try { if (_ped)  _ped.removeEventListener(hmSensor.event.CHANGE) }  catch (e) {}

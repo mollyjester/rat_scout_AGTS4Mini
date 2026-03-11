@@ -47,21 +47,6 @@ AppSettingsPage({
       }
     }
 
-    // Unwrap a Select value from storage (stored as JSON {name, value} object)
-    function getSelectValue(key) {
-      var raw = get(key)
-      if (!raw) return undefined
-      try {
-        var parsed = JSON.parse(raw)
-        if (typeof parsed === 'object' && parsed !== null && parsed.value !== undefined) {
-          return parsed.value
-        }
-        return raw
-      } catch (e) {
-        return raw
-      }
-    }
-
     // Helper: parse garbage day CSV into boolean array [Mon..Sun]
     function parseDaysCsv(csv) {
       var flags = [false, false, false, false, false, false, false]
@@ -149,14 +134,11 @@ AppSettingsPage({
         }),
         Select({
           label: 'Region',
+          settingsKey: 'dexcom_region',
           options: [
             { name: 'Outside US', value: 'ous' },
             { name: 'US', value: 'us' },
           ],
-          value: getSelectValue('dexcom_region'),
-          onChange: function (val) {
-            set('dexcom_region', JSON.stringify(val))
-          },
         }),
       ]),
 
@@ -164,14 +146,11 @@ AppSettingsPage({
       Section({ title: 'Blood Glucose' }, [
         Select({
           label: 'Units',
+          settingsKey: 'bg_units',
           options: [
             { name: 'mg/dL', value: 'mgdl' },
             { name: 'mmol/L', value: 'mmol' },
           ],
-          value: getSelectValue('bg_units'),
-          onChange: function (val) {
-            set('bg_units', JSON.stringify(val))
-          },
         }),
       ]),
 
@@ -188,14 +167,11 @@ AppSettingsPage({
         }),
         Select({
           label: 'Units',
+          settingsKey: 'weather_units',
           options: [
             { name: 'Metric (°C, m/s)', value: 'metric' },
             { name: 'Imperial (°F, mph)', value: 'imperial' },
           ],
-          value: getSelectValue('weather_units'),
-          onChange: function (val) {
-            set('weather_units', JSON.stringify(val))
-          },
         }),
       ]),
 
