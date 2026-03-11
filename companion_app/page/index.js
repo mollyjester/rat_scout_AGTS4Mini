@@ -189,9 +189,9 @@ function setupBle() {
       // ── Data response ────────────────────────────────────────────────
       if ((outerType === 0x4 || outerType === 0x5) && arr.length > 82) {
         try {
-          var traceId  = _r32(arr, 16)
-          var payLen   = _r32(arr, 32)
-          var payType  = arr[36]
+          var traceId  = _r32(arr, 16)   // inner offset 0: traceId
+          var payLen   = _r32(arr, 36)   // inner offset 20: payloadLength
+          var payType  = arr[40]         // inner offset 24: payloadType
           var dataStart = 82
           var payload  = arr.slice(dataStart, dataStart + payLen)
           var str      = _b2s(Array.from(payload))
@@ -200,11 +200,15 @@ function setupBle() {
           if (payType === 0x02 && _pending[traceId]) {
             delete _pending[traceId]
 
-            // ZML BaseSideService wraps responses as {data: {result: ...}}
-            // Handle both ZML format and direct format for robustness
+            // ZML BaseSideService wraps res(null, x) as {result: x} in the
+            // BLE JSON payload.  Handle both ZML and direct formats.
             var responseData = null
-            if (msg && msg.data) {
+            if (msg && msg.result) {
+              responseData = msg.result
+            } else if (msg && msg.data) {
               responseData = msg.data.result || msg.data
+            } else {
+              responseData = msg
             }
 
             if (responseData && responseData.settings) {
