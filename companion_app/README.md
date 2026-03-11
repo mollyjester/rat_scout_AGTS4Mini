@@ -13,7 +13,8 @@ a settings page for `appType: "watchface"` — only for apps.
 │  ┌──────────────────┐     settingsStorage     ┌──────────────┐ │
 │  │  Settings App UI  │ ◄─────────────────────► │ Side Service │ │
 │  │  setting/index.js │                         │ app-side/    │ │
-│  └──────────────────┘                         │ index.js     │ │
+│  │  (AppSettingsPage)│                         │ index.js     │ │
+│  └──────────────────┘                         │ (@zeppos/zml)│ │
 │                                                └──────┬───────┘ │
 │                                                       │ BLE     │
 ├───────────────────────────────────────────────────────┼─────────┤
@@ -21,48 +22,55 @@ a settings page for `appType: "watchface"` — only for apps.
 │                                                       ▼         │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Device App Page  (page/index.js)                        │   │
-│  │  1. Requests settings via BLE                            │   │
-│  │  2. Writes rat_scout_settings.json to hmFS               │   │
+│  │  1. Sends BLE shake + {action: 'getSettings'}            │   │
+│  │  2. Receives {result: {settings: {...}}} via BLE         │   │
+│  │  3. Writes rat_scout_settings.json to hmFS               │   │
+│  │  4. Attempts cross-app write to ../1000089/              │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                            │                                    │
 │                      hmFS file                                  │
 │                            ▼                                    │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Watchface  (watchface/index.js)                         │   │
-│  │  Reads settings file on init → sends to Side Service     │   │
+│  │  Watchface  (../watchface/index.js — appId 1000089)      │   │
+│  │  Reads settings file on init → sends to own Side Service │   │
+│  │  → Side Service uses settings for Dexcom/weather/astro   │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Data flow:**
-1. User opens **Zepp App → Profile → [watch] → App List → Rat Scout Settings → Settings gear**
+1. User opens **Zepp App → Profile → [watch] → App List → Rat Scout Settings → ⚙️**
 2. Configures Dexcom, weather, astronomy, garbage schedule
 3. Settings saved to companion app's `settingsStorage`
 4. User opens the **Rat Scout Settings** app on the watch
-5. App connects via BLE, requests settings from Side Service
-6. Side Service normalises values (unwraps JSON encoding from UI components)
-7. Settings JSON written to watch filesystem (`rat_scout_settings.json`)
-8. Cross-app write attempted to watchface's data directory
+5. App sends BLE shake + `{ action: 'getSettings' }` to Side Service
+6. Side Service reads `settingsStorage`, normalises values (unwraps JSON encoding)
+7. Responds with `{ settings: {...} }` (wrapped as `{ result: { settings: {...} } }` by ZML)
+8. Page writes `rat_scout_settings.json` to hmFS (own dir + cross-app `../1000089/`)
 9. User returns to the **Rat Scout** watchface
-10. Watchface reads settings file from hmFS on init
-11. Watchface includes settings in BLE `fetchAll` request to its own Side Service
-12. Side Service uses the override settings for all API calls
+10. Watchface reads settings file on init, includes in `fetchAll` BLE request to own Side Service
+11. Side Service uses values as `_overrideSettings` for all API calls
 
 ## Project Structure
 
 ```
 companion_app/
-├── app.json            App manifest (appId: 1000090, appType: "app")
-├── app.js              Minimal App({}) entry (API 1.0 globals)
+├── app.json             App manifest (appId: 1000090, appType: "app")
+├── app.js               Minimal App({}) entry (API 1.0 globals)
+├── package.json         NPM deps: @zeppos/zml ^0.0.9
 ├── page/
-│   └── index.js        Watch-side page: BLE + hmFS (API 1.0 globals)
+│   └── index.js         Watch-side page (~314 lines, API 1.0 globals)
+│                         Manual hmBle binary framing + hmFS file write
 ├── app-side/
-│   └── index.js        Phone-side service: reads settingsStorage, serves via BLE
+│   └── index.js         Phone-side service (~103 lines)
+│                         Uses @zeppos/zml BaseSideService + settingsLib
+│                         AppSideService is a GLOBAL (not imported)
 ├── setting/
-│   └── index.js        Settings UI: AppSettingsPage with all config sections
+│   └── index.js         Settings App UI (~228 lines)
+│                         AppSettingsPage with Section, TextInput, Select
 └── assets/
     └── gts4mini/
-        └── icon.png    App icon (copied from watchface)
+        └── icon.png     App icon (62×62)
 ```
 
 ## Settings Keys
@@ -77,9 +85,9 @@ companion_app/
 | `weather_units` | Select | `metric` or `imperial` | `metric` |
 | `ipgeo_api_key` | TextInput | ipgeolocation.io API key | `xyz789` |
 | `garbage_hour` | TextInput | Hour after which next-day bag shows | `9` |
-| `garbage_organic` | Day toggles | CSV of Mon-based day numbers | `0,3` |
-| `garbage_grey` | Day toggles | CSV of Mon-based day numbers | `1,4` |
-| `garbage_black` | Day toggles | CSV of Mon-based day numbers | `2,5` |
+| `garbage_organic` | TextInput | CSV of Mon-based day numbers | `0,2,4` |
+| `garbage_grey` | TextInput | CSV of Mon-based day numbers | `3` |
+| `garbage_black` | TextInput | CSV of Mon-based day numbers | `1,5` |
 
 ## How to Build & Install
 
@@ -92,6 +100,7 @@ companion_app/
 
 ```bash
 cd companion_app
+npm install          # first time only — installs @zeppos/zml
 zeus build
 ```
 
@@ -124,13 +133,13 @@ zeus build
    - Open Zepp App
    - Go to **Profile → [your watch name] → App List** (or "Installed Apps")
    - Find **"Rat Scout Settings"**
-   - Tap the **Settings gear icon** next to it
+   - Tap the **⚙️ Settings gear icon** next to it
    - Fill in your Dexcom credentials, API keys, and garbage schedule
    
 2. **Sync settings to the watch:**
    - On the watch, go to the app list
    - Open **"Rat Scout Settings"**
-   - Wait for "Settings saved!" message (takes a few seconds)
+   - Wait for "Settings saved! (N keys)" message (takes a few seconds)
    - Press back to return to the watchface
 
 3. **The watchface now uses your settings automatically.**
@@ -148,30 +157,69 @@ The watchface reads the settings file on every init (screen wake / watchface loa
 ## Technical Details
 
 ### API 1.0 Compatibility
-- `app.js` and `page/index.js` use **API 1.0 globals only** (no `import` statements)
-- `app-side/index.js` uses `@zos/*` imports (phone-side, webpack-resolved)
+- `app.js` and `page/index.js` use **API 1.0 globals only** — absolutely no `import`
+  statements (the zeus bundler compiles them to `__$$RQR$$__()` calls which crash
+  on the GTS 4 Mini)
+- `app-side/index.js` uses `import` from `@zeppos/zml/base-side` — these are
+  resolved by rollup at build time and bundled inline (no runtime `__$$RQR$$__` calls)
 - `setting/index.js` uses `AppSettingsPage` global (Settings App runtime)
+
+### @zeppos/zml Pattern
+
+The Side Service uses `@zeppos/zml` v0.0.9 (official Zepp OS library) to avoid
+importing `@zos/app-side/settings` which is not a valid runtime module in the
+Side Service worker context:
+
+```js
+import { BaseSideService } from '@zeppos/zml/base-side'
+import { settingsLib }      from '@zeppos/zml/base-side'
+
+AppSideService(BaseSideService({
+  onRequest(req, res) { res(null, { settings: getAllSettings() }) },
+}))
+```
+
+`BaseSideService`:
+- Wraps the config object and calls `AppSideService()` (a global)
+- Sets up `messaging.peerSocket` BLE listener internally
+- Accesses `settings.settingsStorage` global for settings I/O
+- Wraps `res(null, data)` as `{ result: data }` in the BLE JSON payload
 
 ### BLE Protocol
 The Device App page uses the same MessageBuilder-compatible binary framing as
-the watchface. The outer packet format (16-byte header) and inner payload format
-(66-byte header + JSON data) are identical.
+the watchface:
+
+| Layer | Size | Contents |
+|-------|------|----------|
+| Outer header | 16 bytes | flag, version, outerType, port1, port2, appId, extra |
+| Inner header | 66 bytes | traceId, spanId, seqId, totalLength, payloadLength, payloadType, opCode, timestamps, contentType, dataType |
+| Payload | variable | UTF-8 JSON bytes |
+
+Key offsets (from start of BLE packet):
+- `arr[2..3]` — outerType (0x01=shake, 0x04=data)
+- `arr[16..19]` — traceId
+- `arr[36..39]` — payloadLength
+- `arr[40]` — payloadType (0x01=request, 0x02=response)
+- `arr[82..]` — JSON payload start
 
 ### Cross-App File Access
 The companion app writes `rat_scout_settings.json` to **two** locations:
 1. Its own data directory (always succeeds)
 2. `../1000089/rat_scout_settings.json` — the watchface's data directory (may
-   succeed depending on firmware)
+   succeed depending on firmware sandbox policy)
 
 The watchface tries to read from:
 1. Its own data directory (succeeds if cross-app write worked)
 2. `../1000090/rat_scout_settings.json` — the companion's directory (fallback)
 
 ### Settings Normalisation
-The companion Side Service normalises settingsStorage values before sending:
-- **TextInput** stores JSON-quoted strings (`"\"hello\""`) → unwrapped to `"hello"`
-- **Select** stores JSON objects (`"{"name":"US","value":"us"}"`) → extracted to `"us"`
-- **Plain strings** (garbage day CSVs) → passed through as-is
+The companion Side Service normalises `settingsStorage` values before sending:
+
+| UI Component | Raw storage format | Normalised output |
+|---|---|---|
+| TextInput | JSON-quoted: `"\"hello\""` | `"hello"` |
+| Select | JSON object: `"{"name":"OUS","value":"ous"}"` | `"ous"` |
+| Plain text (garbage CSVs) | `"0,2,4"` | `"0,2,4"` |
 
 The watchface's Side Service receives clean key-value pairs and uses them
 directly via `_overrideSettings`, falling back to its own (empty) settingsStorage.
@@ -185,3 +233,4 @@ directly via `_overrideSettings`, falling back to its own (empty) settingsStorag
 | "No settings configured yet" | You haven't configured settings yet. Follow the steps in "Configure settings on your phone" above. |
 | Watchface shows no data after sync | The watchface reads settings on init. Try switching away from and back to the watchface to trigger a reload. |
 | Settings lost after watch reboot | Settings file persists in hmFS across reboots. If lost, just re-open the companion app to re-sync. |
+| Side Service crash in bridge logs | Check for `TypeError ... onInit` — likely an import issue. The Side Service must use `@zeppos/zml` pattern, not raw `@zos/app-side/settings` imports. |

@@ -4,30 +4,41 @@
 
 Port of [mollyjester/rat_scout](https://github.com/mollyjester/rat_scout) to the **Amazfit GTS 4 Mini** using the Zepp OS SDK (zeus-cli v1.8.2).
 
-**App ID:** 1000089  
+**Two packages:**
+| | Watchface | Companion App |
+|---|---|---|
+| App ID | 1000089 | 1000090 |
+| App Type | `watchface` | `app` |
+| Directory | root (`/`) | `companion_app/` |
+
 **Target device:** GTS 4 Mini (336×384 px), deviceSource 246/247  
 **Toolchain:** `~/.nvm/versions/node/v24.13.1/bin/zeus`  
-**Build:** `zeus build` · **Dev/watch:** `zeus dev` (connects to simulator at `http://127.0.0.1:7650`)  
-**Compiled output:** `~/.config/simulator/apps/rat_scout_AGTS4Mini1000089/`
+**Build:** `zeus build` (run in root for watchface, in `companion_app/` for companion)  
+**Bridge:** `zeus bridge` → `connect` → `install`
 
 ---
 
 ## Critical constraint: API 1.0 globals only
 
-The GTS 4 Mini firmware runs API 1.0. The zeus bundler compiles `import` statements to `__$$RQR$$__()` calls, which **do not exist** at runtime on this firmware — they crash immediately on watchface open.
+The GTS 4 Mini firmware runs API 1.0. The zeus bundler compiles `import` statements to `__$$RQR$$__()` calls, which **do not exist** at runtime on this firmware — they crash immediately.
 
-**`watchface/index.js` must never use `import`.** Use API 1.0 globals only:
+**`watchface/index.js` and `companion_app/page/index.js` must never use `import`.** Use API 1.0 globals only:
 
 | Global | Purpose |
 |---|---|
 | `hmUI` | Widget creation and properties |
 | `hmSensor` | Sensor access |
 | `hmBle` | Bluetooth messaging |
-| `WatchFace({})` | Entry point |
+| `hmFS` | File system (read/write settings JSON) |
 | `hmApp` | App info (`hmApp.packageInfo().appId`) |
+| `WatchFace({})` | Watchface entry point |
+| `Page({})` | App page entry point |
 | `timer` | Timers |
 
-`app-side/index.js` runs on the phone (Electron), so `import` from `@zos/*` is fine there.
+**Phone-side code** (`app-side/index.js`) runs in the Zepp app worker, so imports are OK:
+- Watchface side service: `import` from `@zos/utils`, `@zos/app`, etc.
+- Companion side service: `import` from `@zeppos/zml/base-side` (bundled by rollup)
+- `AppSideService` is a **GLOBAL** in the worker context — never imported.
 
 ### API 1.0 sensor access
 ```js
@@ -76,19 +87,49 @@ y=302  h=82   Bottom zone:
 ## File structure
 
 ```
-watchface/index.js      — Watch-side UI, API 1.0 globals, ~500 lines
-app-side/index.js       — Phone-side service, @zos/* imports OK, ~356 lines
+watchface/index.js      — Watch-side UI, API 1.0 globals, ~520 lines
+app-side/index.js       — Watchface phone-side service, @zos/* imports, ~430 lines
+setting/index.js        — (unused — Zepp App doesn't show settings for watchfaces)
 app.js                  — Minimal app entry
-app.json                — App manifest
+app.json                — App manifest (appId 1000089)
+ARCHITECTURE.md         — Detailed architecture reference
 assets/gts4mini/
-  images/               — All PNG icons (downloaded from mollyjester/rat_scout)
-    newmoon.png, waxingcrescentmoon.png, firstquartermoon.png,
-    waxinggibbousmoon.png, fullmoon.png, waninggibbousmoon.png,
-    thirdquartermoon.png, waningcrescentmoon.png
-    organicbag.png, greybag.png, blackbag.png
-    sun.png, umbrella.png, hourly.png, temperature.png, wind.png, steps.png
-    bg.png
+  images/               — All PNG icons (18 files)
+    Moon: newmoon, waxingcrescentmoon, firstquartermoon, waxinggibbousmoon,
+          fullmoon, waninggibbousmoon, thirdquartermoon, waningcrescentmoon
+    Bags: organicbag, greybag, blackbag
+    Weather: sun, umbrella, hourly, temperature, wind
+    Other: steps, bg
+
+companion_app/          — Settings companion (appId 1000090)
+  app.json              — Manifest (appType "app")
+  app.js                — Minimal entry
+  package.json          — @zeppos/zml dependency
+  page/index.js         — Watch page: BLE + hmFS ~314 lines
+  app-side/index.js     — Phone service: settingsLib + BLE ~103 lines
+  setting/index.js      — Settings UI: TextInput, Select ~228 lines
+  assets/gts4mini/icon.png
 ```
+
+---
+
+## Settings (stored in companion app's settingsStorage)
+
+| Key | Description |
+|---|---|
+| `dexcom_username` | Dexcom Share login |
+| `dexcom_password` | Dexcom Share password |
+| `dexcom_region` | `us` or `ous` |
+| `bg_units` | `mgdl` or `mmol` |
+| `owm_api_key` | OpenWeatherMap API key |
+| `weather_units` | `metric` or `imperial` |
+| `ipgeo_api_key` | ipgeolocation.io API key |
+| `garbage_organic` | CSV of day numbers (0=Mon…6=Sun) |
+| `garbage_grey` | CSV of day numbers |
+| `garbage_black` | CSV of day numbers |
+| `garbage_hour` | Hour after which next-day bag shown (default 9) |
+
+Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 
 ---
 
@@ -96,22 +137,17 @@ assets/gts4mini/
 
 ### Glucose (Dexcom CGM)
 - Fetches from Dexcom Share API (US: `share2.dexcom.com`, OUS: `shareous1.dexcom.com`)
-- Settings: `dexcom_username`, `dexcom_password`, `dexcom_region` (us/ous), `bg_units` (mgdl/mmol)
 - Displays value, delta (±), and age in minutes
 - Color: green (70–180 mg/dL), orange (>180), red (<70), gray (error)
 
 ### Weather (OpenWeatherMap)
-- Settings: `owm_api_key`, `weather_units` (metric/imperial), `latitude`, `longitude`
 - Displays temperature and wind speed
 
 ### Astronomy (ipgeolocation.io)
-- Settings: `ipgeo_api_key`, `latitude`, `longitude`
 - Displays next sunrise/sunset time with sun icon
 - Displays next moonrise/moonset time with moon phase icon (8 phases, 0=new…7=waning crescent)
 
 ### Garbage bin schedule
-- Settings: `garbage_organic`, `garbage_grey`, `garbage_black` — CSV of day numbers (0=Mon…6=Sun)
-- Setting: `garbage_hour` — hour after which next-day bag is shown (default 9)
 - Computed in `app-side/index.js` → `computeGarbageBag()` → returns `'O'`/`'G'`/`'B'`/`null`
 - Watch shows the corresponding bag icon in the status bar; hidden when no pickup
 
@@ -119,14 +155,23 @@ assets/gts4mini/
 
 ## Messaging (watch ↔ phone)
 
+### Watchface ↔ Watchface Side Service
 The watch side cannot use `@zos/utils` `messageBuilder`. Instead, `watchface/index.js` implements inline `hmBle` framing compatible with the MessageBuilder protocol:
 
 1. Watch sends a shake packet (`outerType=0x01`) to initiate
 2. Phone replies with shake response; watch learns `_blePort` from reply's `port2`
-3. Watch sends JSON request `{ action: 'fetchAll' }` wrapped in 16-byte outer + 66-byte inner header
+3. Watch sends JSON request `{ action: 'fetchAll', settings: {...} }` wrapped in 16-byte outer + 66-byte inner header
 4. Phone responds with data; watch parses and calls `applyAll(msg.data)`
 
-Phone side (`app-side/index.js`) uses standard `messageBuilder` from `@zos/utils` — no changes needed there.
+Phone side uses `messageBuilder.listen()` from `@zos/utils`.
+
+### Companion Page ↔ Companion Side Service
+Same binary framing (16-byte outer + 66-byte inner). Side Service uses `@zeppos/zml` `BaseSideService` (internally uses `messaging.peerSocket`). ZML wraps `res(null, data)` as `{ result: data }` in BLE JSON — page must unwrap `msg.result`.
+
+### Settings flow
+1. User configures settings in Zepp App (companion's Settings App UI)
+2. User opens companion app on watch → BLE request → gets settings → writes `rat_scout_settings.json` to hmFS
+3. Watchface reads file on init → passes settings in `fetchAll` BLE request → Side Service uses as `_overrideSettings`
 
 ---
 
