@@ -235,11 +235,18 @@ async function fetchWeather(lat, lon) {
     if (!resp || resp.status !== 200) return null
 
     const data = JSON.parse(await resp.text())
+
+    // Weather condition codes 200-699 indicate precipitation
+    // (2xx=Thunderstorm, 3xx=Drizzle, 5xx=Rain, 6xx=Snow)
+    const weatherId = data.weather && data.weather[0] ? data.weather[0].id : 800
+    const needsUmbrella = weatherId >= 200 && weatherId < 700
+
     return {
       temp:     Math.round(data.main.temp),
       tempUnit: metric ? '\u00b0C' : '\u00b0F',
       wind:     Math.round(data.wind.speed),
       windUnit: metric ? 'm/s' : 'mph',
+      needsUmbrella,
     }
   } catch (e) {
     return null

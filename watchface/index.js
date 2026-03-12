@@ -106,23 +106,30 @@ function setp(wref, key, val) {
 function buildStatusBar() {
   mkw(hmUI.widget.FILL_RECT, { x: 0, y: 0, w: W, h: 42, color: C_BAR, radius: 0 })
 
+  // Left icons: umbrella (hidden), garbage bag (hidden)
+  R.umbrella = mkw(hmUI.widget.IMG, { x: 8, y: 5, w: 32, h: 32, src: 'images/umbrella.png' })
+  setp(R.umbrella, hmUI.prop.VISIBLE, false)
+
+  R.garbage = mkw(hmUI.widget.IMG, { x: 44, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
+  setp(R.garbage, hmUI.prop.VISIBLE, false)
+
+  // Weekday (center area)
   R.weekday = mkw(hmUI.widget.TEXT, {
-    x: 8, y: 2, w: 72, h: 38,
+    x: 100, y: 2, w: 90, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
+    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     text: '---',
   })
 
-  R.garbage = mkw(hmUI.widget.IMG, { x: 84, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
-  setp(R.garbage, hmUI.prop.VISIBLE, false)
-
+  // Battery percentage
   R.batPct = mkw(hmUI.widget.TEXT, {
-    x: 196, y: 2, w: 66, h: 38,
+    x: 200, y: 2, w: 62, h: 38,
     color: C_GRAY, text_size: FS_SMALL,
     align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
     text: '--%',
   })
 
+  // Battery bar background + fill
   mkw(hmUI.widget.FILL_RECT, { x: 266, y: 13, w: 62, h: 16, color: C_DKGRAY, radius: 2 })
 
   R.batBar = mkw(hmUI.widget.FILL_RECT, {
@@ -183,52 +190,51 @@ function buildDateZone() {
 }
 
 function buildBottomZone() {
-  mkw(widget.FILL_RECT, { x: 8, y: 301, w: W - 16, h: 1, color: C_DKGRAY })
+  mkw(hmUI.widget.FILL_RECT, { x: 8, y: 301, w: W - 16, h: 1, color: C_DKGRAY })
   // Vertical divider between left (sun/moon) and right (weather/steps) columns
-  mkw(widget.FILL_RECT, { x: 168, y: 303, w: 1, h: 79, color: C_DKGRAY })
+  mkw(hmUI.widget.FILL_RECT, { x: 168, y: 303, w: 1, h: 79, color: C_DKGRAY })
 
   // ── Left: Sun row ───────────────────────────────────────────────────────────
-  R.sunDir = mkw(widget.IMG, { x: 8, y: 306, w: 32, h: 32, src: 'images/sun.png' })
-  R.sunTime = mkw(widget.TEXT, {
-    x: 48, y: 303, w: 116, h: 38,
+  R.sunDir = mkw(hmUI.widget.IMG, { x: 8, y: 306, w: 32, h: 32, src: 'images/sun.png' })
+  R.sunTime = mkw(hmUI.widget.TEXT, {
+    x: 44, y: 303, w: 120, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--:--',
   })
 
   // ── Left: Moon row ──────────────────────────────────────────────────────────
-  R.moonPhase = mkw(widget.IMG, { x: 8, y: 346, w: 32, h: 32, src: MOON_IMGS[0] })
-  R.moonTime = mkw(widget.TEXT, {
-    x: 48, y: 343, w: 116, h: 38,
+  R.moonPhase = mkw(hmUI.widget.IMG, { x: 8, y: 346, w: 32, h: 32, src: MOON_IMGS[0] })
+  R.moonTime = mkw(hmUI.widget.TEXT, {
+    x: 44, y: 343, w: 120, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--:--',
   })
 
-  // ── Right: Temperature row (top) ────────────────────────────────────────────
-  mkw(widget.IMG, { x: 174, y: 306, w: 22, h: 32, src: 'images/temperature.png' })
-  R.temp = mkw(widget.TEXT, {
-    x: 198, y: 303, w: 138, h: 38,
+  // ── Right top: Temperature + Wind ───────────────────────────────────────────
+  mkw(hmUI.widget.IMG, { x: 174, y: 306, w: 22, h: 32, src: 'images/temperature.png' })
+  R.temp = mkw(hmUI.widget.TEXT, {
+    x: 198, y: 303, w: 56, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--',
   })
 
-  // ── Right: Wind (bottom-left half) ──────────────────────────────────────────
-  mkw(widget.IMG, { x: 174, y: 346, w: 22, h: 32, src: 'images/wind.png' })
-  R.wind = mkw(widget.TEXT, {
-    x: 198, y: 343, w: 74, h: 38,
+  mkw(hmUI.widget.IMG, { x: 256, y: 306, w: 22, h: 32, src: 'images/wind.png' })
+  R.wind = mkw(hmUI.widget.TEXT, {
+    x: 280, y: 303, w: 56, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--',
   })
 
-  // ── Right: Steps (bottom-right half) ────────────────────────────────────────
-  mkw(widget.IMG, { x: 274, y: 346, w: 20, h: 32, src: 'images/steps.png' })
-  R.steps = mkw(widget.TEXT, {
-    x: 296, y: 343, w: 40, h: 38,
+  // ── Right bottom: Steps ─────────────────────────────────────────────────────
+  mkw(hmUI.widget.IMG, { x: 174, y: 346, w: 20, h: 32, src: 'images/steps.png' })
+  R.steps = mkw(hmUI.widget.TEXT, {
+    x: 198, y: 343, w: 132, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: align.LEFT, align_v: align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '0',
   })
 }
@@ -306,6 +312,9 @@ function applyWeather(msg) {
   try {
     if (msg.temp !== undefined) setp(R.temp, hmUI.prop.TEXT, msg.temp + (msg.tempUnit || ''))
     if (msg.wind !== undefined) setp(R.wind, hmUI.prop.TEXT, msg.wind + (msg.windUnit || ''))
+    if (msg.needsUmbrella !== undefined) {
+      setp(R.umbrella, hmUI.prop.VISIBLE, !!msg.needsUmbrella)
+    }
   } catch (e) {}
 }
 
