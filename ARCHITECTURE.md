@@ -87,12 +87,26 @@ companion app's `settingsStorage` and are read server-side (phone) on every fetc
 
 ### Periodic Data Refresh (Reconnect-Before-Fetch)
 
-After the initial fetch, the watchface sets up a repeating timer (`FETCH_INTERVAL`,
-default 5 minutes). On each tick it **resets the BLE connection** (`_bleConnected = false`,
-`_blePort = 0`) and re-initiates the shake handshake. When the shake reply arrives the
-handler calls `_sendFetchAll()` with fresh connection state. This reconnect-before-fetch
-pattern is necessary because the BLE link to the companion's Side Service (appId 1000090)
-goes stale between fetches.
+The watchface refreshes data every 5 minutes using **two complementary triggers**:
+
+1. **`WIDGET_DELEGATE` `resume_call`** — fires every time the screen turns on
+   (wrist raise or button press). This is the primary trigger because the
+   `MINUTEEND` sensor event does **not** fire when the screen is off on the
+   GTS 4 Mini firmware.
+2. **`MINUTEEND` event** — fires at the top of each minute while the screen
+   remains on. Acts as a secondary trigger for updates during active use.
+
+Both callbacks check `Date.now() - _lastFetchTime >= FETCH_INTERVAL_MIN * 60000`
+before initiating a fetch. On each fetch tick the watchface **resets the BLE
+connection** (`_bleConnected = false`, `_blePort = 0`) and re-initiates the shake
+handshake. When the shake reply arrives the handler calls `_sendFetchAll()` with
+fresh connection state. This reconnect-before-fetch pattern is necessary because
+the BLE link to the companion's Side Service (appId 1000090) goes stale between
+fetches.
+
+> **Firmware limitation:** `timer.createTimer()` and `MINUTEEND` events do not
+> fire when the watch screen is off. Only `WIDGET_DELEGATE` `resume_call`
+> reliably wakes up the watchface code on screen-on.
 
 ---
 
@@ -114,6 +128,8 @@ watchface/index.js      — Watch-side UI (API 1.0 globals only)
                           Sends { action: 'fetchAll' } to companion
                           Side Service (appId 1000090) via BLE
                           Reconnects (re-shakes) before each periodic fetch
+                          Uses WIDGET_DELEGATE resume_call for screen-on refresh
+                          (MINUTEEND does not fire when screen is off)
 
 app-side/index.js       — Phone-side service (STUB — never runs)
                           Zepp firmware does not launch side services for
@@ -275,6 +291,44 @@ y=302  h=82   Bottom zone:
                Left col (x=8..167):   sun icon + time / moon phase icon + time
                Right col (x=168..335): temperature icon + value / wind icon + value / steps icon + count
 ```
+
+---
+
+## Data Processing (Companion Side Service)
+
+All data processing happens in the companion's Side Service (`companion_app/app-side/index.js`).
+The watchface receives pre-computed display values; it does not perform any calculations.
+
+### Glucose
+
+- **Source**: Dexcom Share API (`ReadPublisherLatestGlucoseValues`, `maxCount=2`)
+- **Conversion**: mg/dL → mmol/L uses factor `18.0182` (not 18.0), matching the
+  standard medical conversion. E.g. `121 / 18.0182 = 6.715…` → display `"6.7"`.
+- **Color**: Determined by raw mg/dL value (before conversion to mmol):
+  - Green (`0x44F244`): 70 ≤ value ≤ 180
+  - Orange (`0xFF8C00`): value > 180
+  - Red (`0xFF3030`): value < 70
+  - Gray (`0x888888`): error / no data
+- **Delta**: Difference between latest two readings, displayed with ± prefix.
+- **Age**: Minutes since the latest reading timestamp.
+- **Credentials**: Dexcom username/password are read from `settingsStorage` and used
+  only for the Dexcom Share API. They are **never** sent over BLE to the watch —
+  only the computed glucose result is transmitted.
+
+### Weather
+
+- **Source**: OpenWeatherMap Current Weather API
+- **Temperature**: Rounded to integer, with °C or °F suffix depending on `weather_units`.
+- **Wind**: Rounded to integer, m/s or mph.
+- **Umbrella**: `needsUmbrella` flag based on rain/thunderstorm weather condition ID.
+
+### Astronomy
+
+- **Source**: ipgeolocation.io Astronomy API
+- **Location**: Auto-detected via ip-api.com (not configurable in settings).
+- **Sun/Moon time**: Next sunrise or sunset (whichever is upcoming), next
+  moonrise or moonset. Displayed as HH:MM strings.
+- **Moon phase**: Mapped from API phase name to index 0–7 (new→waning crescent).
 
 ---
 

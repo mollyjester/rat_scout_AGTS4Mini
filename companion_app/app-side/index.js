@@ -190,11 +190,9 @@ async function fetchGlucose() {
 
     let displayValue, deltaStr
     if (units === 'mmol') {
-      const mmol     = (raw / 18.0).toFixed(1)
-      const prevMmol = prev ? (prev.Value / 18.0).toFixed(1) : null
-      displayValue   = mmol
-      deltaStr       = prevMmol !== null
-        ? formatDelta((parseFloat(mmol) - parseFloat(prevMmol)).toFixed(1))
+      displayValue = (raw / 18.0182).toFixed(1)
+      deltaStr     = prev
+        ? formatDelta(((raw - prev.Value) / 18.0182).toFixed(1))
         : ''
     } else {
       const d  = prev ? raw - prev.Value : null
@@ -208,7 +206,7 @@ async function fetchGlucose() {
       if (!isNaN(ms)) timestamp = ms
     } catch (e) {}
 
-    return { value: displayValue, delta: deltaStr, timestamp }
+    return { value: displayValue, delta: deltaStr, timestamp, raw }
   } catch (e) {
     _dexSessionId = null
     _dexAccountId = null
@@ -223,11 +221,10 @@ function formatDelta(d) {
   return sign + (Number.isInteger(n) ? n : n.toFixed(1))
 }
 
-function glucoseColor(valStr) {
-  const v = parseFloat(valStr)
-  if (isNaN(v)) return 0x888888
-  if (v > 180)  return 0xFF8C00
-  if (v < 70)   return 0xFF3030
+function glucoseColor(rawMgdl) {
+  if (rawMgdl == null || isNaN(rawMgdl)) return 0x888888
+  if (rawMgdl > 180) return 0xFF8C00
+  if (rawMgdl < 70)  return 0xFF3030
   return 0x44FF44
 }
 
@@ -435,7 +432,7 @@ async function fetchAll() {
       value:     glucose.value,
       delta:     glucose.delta,
       timeDelta: timeDelta !== null ? timeDelta + 'm' : '',
-      color:     glucoseColor(glucose.value),
+      color:     glucoseColor(glucose.raw),
     } : null,
     weather:   weather || null,
     astronomy: astronomy || null,
@@ -474,8 +471,12 @@ AppSideService(BaseSideService({
       // ── getSettings: return all settings to companion page ──
       if (action === 'getSettings') {
         const settings = getAllSettings()
-        const count    = Object.keys(settings).length
-        console.log('[RatScout] Sending ' + count + ' settings to watch')
+        // Never send credentials/API keys over BLE — the watch doesn't need them;
+        // only the phone-side service uses them for API calls.
+        const SENSITIVE = ['dexcom_password', 'owm_api_key', 'ipgeo_api_key']
+        for (const k of SENSITIVE) delete settings[k]
+        const count = Object.keys(settings).length
+        console.log('[RatScout] Sending ' + count + ' settings to watch (sensitive keys filtered)')
         res(null, { settings })
         return
       }

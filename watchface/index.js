@@ -60,6 +60,7 @@ let _time, _ped, _bat
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _lastHour = -1
+let _lastFetchTime = 0
 
 
 
@@ -354,10 +355,9 @@ let _appId   = 0
 let _bleConnected = false
 let _shakeRetries = 0
 let _shakeTimer   = null
-let _fetchTimer   = null
 var SHAKE_MAX_RETRIES = 15
 var SHAKE_BASE_DELAY  = 3000   // 3 s, increases with each retry
-var FETCH_INTERVAL    = 300000 // 5 min
+var FETCH_INTERVAL_MIN = 5    // minutes between fetches
 
 function _u16(b, o, v) { b[o] = v & 0xFF; b[o+1] = (v>>8) & 0xFF }
 function _u32(b, o, v) { b[o] = v&0xFF; b[o+1]=(v>>8)&0xFF; b[o+2]=(v>>16)&0xFF; b[o+3]=(v>>24)&0xFF }
@@ -439,21 +439,38 @@ function _sendFetchAll() {
   } catch(e) {}
 }
 
-function _startPeriodicFetch() {
-  if (_fetchTimer) return
-  _fetchTimer = timer.createTimer(FETCH_INTERVAL, FETCH_INTERVAL, function() {
-    // Reset BLE and re-shake; the shake-reply handler calls _sendFetchAll()
-    _bleConnected = false
-    _blePort = 0
-    _shakeRetries = 0
-    _sendShake()
-    _scheduleShakeRetry()
-  })
+// MINUTEEND does NOT fire when the screen is off on the GTS 4 Mini.
+// We use WIDGET_DELEGATE resume_call (fires on wrist-raise / screen-on)
+// combined with MINUTEEND for updates while the screen stays on.
+function _triggerPeriodicFetch() {
+  _lastFetchTime = Date.now()
+  _bleConnected = false
+  _blePort = 0
+  _shakeRetries = 0
+  _sendShake()
+  _scheduleShakeRetry()
+}
+
+function _onResume() {
+  // Screen just turned on — update display immediately
+  try { updateTime()  } catch(e) {}
+  try { updateSteps() } catch(e) {}
+  // Trigger fetch if enough time has passed (or if this is the first resume)
+  if (_lastFetchTime === 0 || (Date.now() - _lastFetchTime) >= FETCH_INTERVAL_MIN * 60000) {
+    _triggerPeriodicFetch()
+  }
+}
+
+function _onMinuteTick() {
+  updateTime()
+  updateSteps()
+  if (_lastFetchTime > 0 && (Date.now() - _lastFetchTime) >= FETCH_INTERVAL_MIN * 60000) {
+    _triggerPeriodicFetch()
+  }
 }
 
 function _stopTimers() {
   if (_shakeTimer)  { try { timer.stopTimer(_shakeTimer)  } catch(e) {} _shakeTimer  = null }
-  if (_fetchTimer)  { try { timer.stopTimer(_fetchTimer)  } catch(e) {} _fetchTimer  = null }
 }
 
 function setupMessaging() {
@@ -476,8 +493,8 @@ function setupMessaging() {
           _shakeRetries = 0
           if (_shakeTimer) { try { timer.stopTimer(_shakeTimer) } catch(e) {} _shakeTimer = null }
           _blePort = port2
+          _lastFetchTime = Date.now()
           _sendFetchAll()
-          _startPeriodicFetch()
           return
         }
 
@@ -545,7 +562,14 @@ WatchFace({
     updateBattery()
     updateSteps()
 
-    if (_time) try { _time.addEventListener(_time.event.MINUTEEND, function() { updateTime(); updateSteps() }) } catch (e) {}
+    // WIDGET_DELEGATE — resume_call fires on wrist-raise / screen-on
+    try {
+      hmUI.createWidget(hmUI.widget.WIDGET_DELEGATE, {
+        resume_call: function() { try { _onResume() } catch(e) {} },
+      })
+    } catch (e) {}
+
+    if (_time) try { _time.addEventListener(_time.event.MINUTEEND, function() { _onMinuteTick() }) } catch (e) {}
     if (_bat)  try { _bat.addEventListener(_bat.event.POWER, function() { updateBattery() }) } catch (e) {}
     if (_ped)  try { _ped.addEventListener(hmSensor.event.CHANGE, function() { updateSteps() }) } catch (e) {}
 

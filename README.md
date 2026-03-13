@@ -83,10 +83,21 @@ This project consists of **two Zepp OS packages**:
 
 **Why two packages?** The Zepp phone app does not expose a settings page for
 `appType: "watchface"`. The companion app (`appType: "app"`) provides the settings
-UI and relays configured values to the watch via hmFS file transfer. Data fetching
-(Dexcom, weather, astronomy) is handled by the watchface's own Side Service.
+UI, and its Side Service handles all external API calls (Dexcom, weather, astronomy).
+The watchface sends `fetchAll` requests via BLE to the companion's Side Service
+(appId 1000090), which reads settings directly from `settingsStorage`.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full technical details.
+
+### Data refresh
+
+The watchface refreshes data every 5 minutes using two triggers:
+
+- **`WIDGET_DELEGATE` `resume_call`** — fires on wrist raise / screen-on.
+  Primary trigger because `MINUTEEND` does not fire when the screen is off.
+- **`MINUTEEND` event** — fires each minute while the screen stays on.
+
+Both check elapsed time before fetching to avoid redundant requests.
 
 ---
 

@@ -52,6 +52,10 @@ _bat.addEventListener(_bat.event.POWER, cb)
 _ped.addEventListener(hmSensor.event.CHANGE, cb)
 ```
 
+> **Firmware limitation:** `MINUTEEND` and `timer.createTimer()` do NOT fire
+> when the screen is off. Use `WIDGET_DELEGATE` `resume_call` as the primary
+> trigger for periodic work.
+
 ### API 1.0 widget pattern
 ```js
 function mkw(type, params) { return hmUI.createWidget(type, params) }
@@ -66,6 +70,11 @@ setp(w, hmUI.prop.MORE, { color: 0xFF0000, w: 40 })
 const img = mkw(hmUI.widget.IMG, { x, y, w, h, src: 'images/foo.png' })
 setp(img, hmUI.prop.SRC,     'images/bar.png')
 setp(img, hmUI.prop.VISIBLE, false)
+
+// WIDGET_DELEGATE — screen-on/off lifecycle callbacks
+hmUI.createWidget(hmUI.widget.WIDGET_DELEGATE, {
+  resume_call: function() { /* screen on (wrist raise) */ },
+})
 ```
 
 ---
@@ -93,6 +102,8 @@ watchface/index.js      — Watch-side UI, API 1.0 globals
                           Sends fetchAll to companion Side Service
                           (appId 1000090) via BLE
                           Reconnects (re-shakes) before each periodic fetch
+                          Uses WIDGET_DELEGATE resume_call for screen-on refresh
+                          (MINUTEEND does not fire when screen is off)
 app-side/index.js       — Watchface phone-side service (STUB — never runs)
                           Zepp firmware does not launch side services for
                           appType "watchface" packages
@@ -187,8 +198,13 @@ and handles both `getSettings` (from companion page) and `fetchAll` (from watchf
 The Side Service reads settings directly from `settingsLib` (`settingsStorage`) for
 all API calls — no settings are passed in the BLE request.
 
-Periodic refresh uses reconnect-before-fetch: every 5 min the watchface sets
-`_bleConnected = false`, re-shakes, and on reply sends `fetchAll`.
+Periodic refresh uses reconnect-before-fetch with two triggers:
+- **`WIDGET_DELEGATE` `resume_call`** — fires on every screen-on (wrist raise).
+  Primary trigger because `MINUTEEND` does NOT fire when screen is off.
+- **`MINUTEEND` event** — fires each minute while screen stays on (secondary).
+
+Both check `Date.now() - _lastFetchTime >= 5 min` before fetching.
+On fetch: sets `_bleConnected = false`, re-shakes, and on reply sends `fetchAll`.
 
 ### Companion Page ↔ Companion Side Service
 Same binary framing (16-byte outer + 66-byte inner). Side Service uses `@zeppos/zml` `BaseSideService` (internally uses `messaging.peerSocket`). ZML wraps `res(null, data)` as `{ result: data }` in BLE JSON — page must unwrap `msg.result`.
