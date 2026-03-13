@@ -1,22 +1,36 @@
 /**
- * Rat Scout Settings — Companion App Side Service
+ * Rat Scout — Companion App Side Service
  *
  * Runs on the phone inside the Zepp App.
- * Serves TWO roles:
- *   1. Settings provider — reads settingsStorage for the companion page
- *   2. Data fetcher — Dexcom CGM, weather, astronomy, garbage for the watchface
+ * Handles TWO types of BLE requests:
  *
- * The watchface sends its BLE shake with appId 1000090 (this app) because
- * the Zepp bridge does not properly install side services for appType "watchface".
+ *   1. "getSettings" — from companion watch page (appId 1000090): returns all
+ *      settings from settingsStorage so the page can write them to hmFS.
  *
- * Uses @zeppos/zml BaseSideService pattern (official Zepp OS sample pattern).
- * AppSideService is a GLOBAL function — NOT imported from @zos/app.
+ *   2. "fetchAll" — from the watchface (appId 1000089 routes here via
+ *      companion appId 1000090): fetches live data from external APIs and
+ *      returns it to the watchface for display.
+ *      Settings arrive in the BLE request payload (the watchface reads them
+ *      from rat_scout_settings.json written by the companion page).
+ *
+ * Data sources:
+ *   - Dexcom Share (CGM glucose readings)
+ *   - OpenWeatherMap (temperature, wind)
+ *   - ipgeolocation.io (sunrise/sunset, moonrise/moonset, moon phase)
+ *   - ip-api.com / ipapi.co (IP-based geolocation fallback)
+ *   - Garbage bag schedule (computed from settings)
+ *
+ * Uses @zeppos/zml BaseSideService for BLE message handling.
+ * AppSideService is a GLOBAL function — NOT imported.
  */
 
 import { BaseSideService } from '@zeppos/zml/base-side'
 import { settingsLib }      from '@zeppos/zml/base-side'
 
-// All setting keys that the watchface needs
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings — getSettings handler (companion page reads settingsStorage)
+// ─────────────────────────────────────────────────────────────────────────────
+
 const SETTINGS_KEYS = [
   'dexcom_username',
   'dexcom_password',
@@ -31,15 +45,8 @@ const SETTINGS_KEYS = [
   'garbage_hour',
 ]
 
-// Fields stored by Select components (value is a JSON-encoded {name, value} object)
 const SELECT_FIELDS = new Set(['dexcom_region', 'bg_units', 'weather_units'])
 
-/**
- * Read all settings from settingsLib, normalising the values:
- * - TextInput stores JSON-quoted strings: "\"hello\"" → "hello"
- * - Select stores JSON objects: "{\"name\":\"US\",\"value\":\"us\"}" → "us"
- * - Garbage day CSVs are plain strings: "0,3" → "0,3"
- */
 function getAllSettings() {
   const result = {}
   for (const key of SETTINGS_KEYS) {
@@ -67,6 +74,16 @@ function getAllSettings() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Settings — fetchAll handler reads directly from settingsLib
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getSetting(key, fallback) {
+  const all = getAllSettings()
+  const val = all[key]
+  return (val !== undefined && val !== null && val !== '') ? val : fallback
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Dexcom Share API
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -81,10 +98,6 @@ function dexcomBase(region) {
   return region === 'ous' ? DEXCOM_OUS_URL : DEXCOM_US_URL
 }
 
-/**
- * Step 1: Authenticate account — returns accountId (GUID)
- * Uses /General/AuthenticatePublisherAccount with accountName.
- */
 async function dexcomAuthenticate(username, password, region) {
   const url  = dexcomBase(region) + '/General/AuthenticatePublisherAccount'
   const resp = await _fetch({
@@ -106,12 +119,7 @@ async function dexcomAuthenticate(username, password, region) {
   return aid
 }
 
-/**
- * Step 2: Login with accountId — returns sessionId (GUID)
- * Uses /General/LoginPublisherAccountById with the GUID from step 1.
- */
 async function dexcomLogin(username, password, region) {
-  // Get accountId first (cached across calls)
   if (!_dexAccountId) {
     _dexAccountId = await dexcomAuthenticate(username, password, region)
   }
@@ -128,13 +136,13 @@ async function dexcomLogin(username, password, region) {
     }),
   })
   if (!resp || resp.status !== 200) {
-    _dexAccountId = null  // force re-auth next time
+    _dexAccountId = null
     throw new Error('Dexcom login failed: ' + (resp && resp.status))
   }
   const text = await resp.text()
   const sid  = text.replace(/^"|"$/g, '')
   if (!sid || sid === '00000000-0000-0000-0000-000000000000') {
-    _dexAccountId = null  // force re-auth next time
+    _dexAccountId = null
     throw new Error('Dexcom login returned null session — check credentials')
   }
   return sid
@@ -215,6 +223,14 @@ function formatDelta(d) {
   return sign + (Number.isInteger(n) ? n : n.toFixed(1))
 }
 
+function glucoseColor(valStr) {
+  const v = parseFloat(valStr)
+  if (isNaN(v)) return 0x888888
+  if (v > 180)  return 0xFF8C00
+  if (v < 70)   return 0xFF3030
+  return 0x44FF44
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // OpenWeatherMap
 // ─────────────────────────────────────────────────────────────────────────────
@@ -235,9 +251,6 @@ async function fetchWeather(lat, lon) {
     if (!resp || resp.status !== 200) return null
 
     const data = JSON.parse(await resp.text())
-
-    // Weather condition codes 200-699 indicate precipitation
-    // (2xx=Thunderstorm, 3xx=Drizzle, 5xx=Rain, 6xx=Snow)
     const weatherId = data.weather && data.weather[0] ? data.weather[0].id : 800
     const needsUmbrella = weatherId >= 200 && weatherId < 700
 
@@ -291,9 +304,7 @@ async function fetchAstronomy(lat, lon) {
 
     return {
       sunTime,
-      sunIsRising,
       moonTime,
-      moonIsRising,
       moonPhase: parseMoonPhase((data.moon_phase || '').toLowerCase()),
     }
   } catch (e) {
@@ -302,7 +313,6 @@ async function fetchAstronomy(lat, lon) {
 }
 
 function parseMoonPhase(str) {
-  // API returns e.g. "LAST_QUARTER" — normalise underscores to spaces
   var s = str.replace(/_/g, ' ')
   if (s.includes('new'))             return 0
   if (s.includes('waxing crescent')) return 1
@@ -348,48 +358,10 @@ function computeGarbageBag() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings helper — reads directly from companion settingsStorage
+// IP-based geolocation
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getSetting(key, fallback) {
-  try {
-    const raw = settingsLib.getItem(key)
-    if (raw !== null && raw !== undefined && raw !== '') {
-      try {
-        const parsed = JSON.parse(raw)
-        if (SELECT_FIELDS.has(key) && typeof parsed === 'object' && parsed !== null) {
-          return parsed.value !== undefined ? String(parsed.value) : raw
-        } else if (typeof parsed === 'string') {
-          return parsed
-        } else if (typeof parsed === 'number') {
-          return String(parsed)
-        }
-        return raw
-      } catch (_e) {
-        return raw
-      }
-    }
-  } catch (_e) {}
-  return fallback
-}
-
-function getLocation() {
-  // Check cached location from IP geolocation first
-  if (_cachedLocation) return _cachedLocation
-  const lat = parseFloat(getSetting('latitude', ''))
-  const lon = parseFloat(getSetting('longitude', ''))
-  return {
-    lat: isNaN(lat) ? null : lat,
-    lon: isNaN(lon) ? null : lon,
-  }
-}
-
-// Cached IP-based location
 let _cachedLocation = null
-
-// ─────────────────────────────────────────────────────────────────────────────
-// IP-based geolocation fallback
-// ─────────────────────────────────────────────────────────────────────────────
 
 async function fetchLocationByIp() {
   try {
@@ -422,8 +394,7 @@ async function fetchLocationByIp() {
 }
 
 async function ensureLocation() {
-  let { lat, lon } = getLocation()
-  if (lat !== null && lon !== null) return { lat, lon }
+  if (_cachedLocation) return _cachedLocation
 
   const ipLoc = await fetchLocationByIp()
   if (ipLoc) {
@@ -453,12 +424,18 @@ async function fetchAll() {
 
   const bag = computeGarbageBag()
 
+  // Weekday string computed here so watchface does no calculations
+  const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+  const weekday  = WEEKDAYS[new Date().getDay()] || '---'
+
   return {
     type: 'all',
+    weekday,
     glucose: glucose ? {
       value:     glucose.value,
       delta:     glucose.delta,
-      timeDelta: timeDelta,
+      timeDelta: timeDelta !== null ? timeDelta + 'm' : '',
+      color:     glucoseColor(glucose.value),
     } : null,
     weather:   weather || null,
     astronomy: astronomy || null,
@@ -472,7 +449,6 @@ async function fetchAll() {
 
 let _fetch = null
 try {
-  // Rollup treats this as external; the runtime resolves it
   const net = require('@zos/app-side/network')
   _fetch = net && net.fetch ? net.fetch : null
 } catch (_e) {}
@@ -483,20 +459,19 @@ try {
 
 AppSideService(BaseSideService({
   onInit() {
-    // Try to resolve fetch from this context if module-level failed
     if (!_fetch) {
       try {
         if (typeof this.fetch === 'function') _fetch = this.fetch.bind(this)
       } catch (_e) {}
     }
-    console.log('[RatScout] Side Service initialized, fetch available: ' + !!_fetch)
+    console.log('[RatScout] Companion Side Service initialized, fetch available: ' + !!_fetch)
   },
 
   async onRequest(req, res) {
     try {
       const action = req && req.action
 
-      // ── Settings request from companion page ────────────────────────────
+      // ── getSettings: return all settings to companion page ──
       if (action === 'getSettings') {
         const settings = getAllSettings()
         const count    = Object.keys(settings).length
@@ -505,8 +480,8 @@ AppSideService(BaseSideService({
         return
       }
 
-      // ── Data fetch request from watchface ───────────────────────────────
-      if (action === 'fetchAll' || action === 'fetchGlucose') {
+      // ── fetchAll: fetch live data for the watchface ──
+      if (action === 'fetchAll') {
         if (!_fetch) {
           console.log('[RatScout] ERROR: fetch not available')
           res(null, { type: 'all', error: 'fetch not available' })
@@ -526,7 +501,7 @@ AppSideService(BaseSideService({
     }
   },
 
-  onSettingsChange({ key, newValue, oldValue }) {
+  onSettingsChange({ key }) {
     console.log('[RatScout] Setting changed: ' + key)
   },
 

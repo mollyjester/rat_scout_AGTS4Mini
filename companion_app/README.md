@@ -4,6 +4,10 @@ A standalone Zepp OS mini-app (`appType: "app"`) that provides a settings UI for
 the **Rat Scout** watchface. Required because the Zepp phone app does not expose
 a settings page for `appType: "watchface"` — only for apps.
 
+**Note:** Data fetching (Dexcom, weather, astronomy) is **not** this app's
+responsibility — that is handled by the watchface's own Side Service (appId 1000089).
+This app only manages settings.
+
 ## Architecture
 
 ```
@@ -14,7 +18,8 @@ a settings page for `appType: "watchface"` — only for apps.
 │  │  Settings App UI  │ ◄─────────────────────► │ Side Service │ │
 │  │  setting/index.js │                         │ app-side/    │ │
 │  │  (AppSettingsPage)│                         │ index.js     │ │
-│  └──────────────────┘                         │ (@zeppos/zml)│ │
+│  └──────────────────┘                         │ (settings    │ │
+│                                                │  only)       │ │
 │                                                └──────┬───────┘ │
 │                                                       │ BLE     │
 ├───────────────────────────────────────────────────────┼─────────┤
@@ -32,8 +37,8 @@ a settings page for `appType: "watchface"` — only for apps.
 │                            ▼                                    │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Watchface  (../watchface/index.js — appId 1000089)      │   │
-│  │  Reads settings file on init → sends to own Side Service │   │
-│  │  → Side Service uses settings for Dexcom/weather/astro   │   │
+│  │  Reads settings file on build()                          │   │
+│  │  Sends settings to own Side Service for API calls        │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -48,8 +53,8 @@ a settings page for `appType: "watchface"` — only for apps.
 7. Responds with `{ settings: {...} }` (wrapped as `{ result: { settings: {...} } }` by ZML)
 8. Page writes `rat_scout_settings.json` to hmFS (own dir + cross-app `../1000089/`)
 9. User returns to the **Rat Scout** watchface
-10. Watchface reads settings file on init, includes in `fetchAll` BLE request to own Side Service
-11. Side Service uses values as `_overrideSettings` for all API calls
+10. Watchface reads settings file on `build()`, sends to own Side Service for API calls
+11. Side Service uses values as `_requestSettings` for all API calls
 
 ## Project Structure
 
@@ -59,14 +64,15 @@ companion_app/
 ├── app.js               Minimal App({}) entry (API 1.0 globals)
 ├── package.json         NPM deps: @zeppos/zml ^0.0.9
 ├── page/
-│   └── index.js         Watch-side page (~314 lines, API 1.0 globals)
+│   └── index.js         Watch-side page (API 1.0 globals)
 │                         Manual hmBle binary framing + hmFS file write
 ├── app-side/
-│   └── index.js         Phone-side service (~103 lines)
+│   └── index.js         Phone-side service (settings only)
 │                         Uses @zeppos/zml BaseSideService + settingsLib
+│                         Handles getSettings requests (no data fetching)
 │                         AppSideService is a GLOBAL (not imported)
 ├── setting/
-│   └── index.js         Settings App UI (~228 lines)
+│   └── index.js         Settings App UI
 │                         AppSettingsPage with Section, TextInput, Select
 └── assets/
     └── gts4mini/
@@ -222,7 +228,7 @@ The companion Side Service normalises `settingsStorage` values before sending:
 | Plain text (garbage CSVs) | `"0,2,4"` | `"0,2,4"` |
 
 The watchface's Side Service receives clean key-value pairs and uses them
-directly via `_overrideSettings`, falling back to its own (empty) settingsStorage.
+directly via `_requestSettings`, falling back to defaults.
 
 ## Troubleshooting
 
@@ -231,6 +237,6 @@ directly via `_overrideSettings`, falling back to its own (empty) settingsStorag
 | Settings page not visible in Zepp App | Make sure you installed the **companion app** (appId 1000090), not just the watchface. Look in Profile → [watch] → App List. |
 | "Connecting to phone..." stays forever | Ensure phone is paired, BLE is active, and the Zepp App is open in foreground. |
 | "No settings configured yet" | You haven't configured settings yet. Follow the steps in "Configure settings on your phone" above. |
-| Watchface shows no data after sync | The watchface reads settings on init. Try switching away from and back to the watchface to trigger a reload. |
+| Watchface shows no data after sync | The watchface reads settings on `build()`. Try switching away from and back to the watchface to trigger a reload. |
 | Settings lost after watch reboot | Settings file persists in hmFS across reboots. If lost, just re-open the companion app to re-sync. |
 | Side Service crash in bridge logs | Check for `TypeError ... onInit` — likely an import issue. The Side Service must use `@zeppos/zml` pattern, not raw `@zos/app-side/settings` imports. |

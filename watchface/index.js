@@ -47,8 +47,7 @@ const MOON_IMGS = [
   'images/waningcrescentmoon.png',
 ]
 
-// ── Weekday abbreviations ─────────────────────────────────────────────────────
-const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
+
 
 // ── Garbage bag images ────────────────────────────────────────────────────────
 const BAG_IMGS = { O: 'images/organicbag.png', G: 'images/greybag.png', B: 'images/blackbag.png' }
@@ -62,8 +61,7 @@ let _time, _ped, _bat
 // ── State ─────────────────────────────────────────────────────────────────────
 let _lastHour = -1
 
-// ── Companion app integration (appId for BLE routing) ────────────────────────
-var COMPANION_APP_ID = 1000090
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -81,13 +79,7 @@ function isoWeek(date) {
   return Math.ceil(((d - yearStart) / 86400000 + 1) / 7)
 }
 
-function glucoseColor(str) {
-  const v = parseFloat(str)
-  if (isNaN(v)) return C_GRAY
-  if (v > 180)  return C_ORANGE
-  if (v < 70)   return C_RED
-  return C_GREEN
-}
+
 
 /** Safe createWidget — returns null instead of throwing */
 function mkw(type, params) {
@@ -266,7 +258,6 @@ function updateDate() {
     const week  = _time.week   // 0=Sun … 6=Sat
     if (day === undefined) return
     setp(R.date,    hmUI.prop.TEXT, pad2(day) + '.' + pad2(month))
-    setp(R.weekday, hmUI.prop.TEXT, WEEKDAYS[week] || '---')
     const wn = isoWeek(new Date(year, month - 1, day))
     setp(R.week, hmUI.prop.TEXT, 'W' + pad2(wn))
   } catch (e) {}
@@ -299,11 +290,10 @@ function updateSteps() {
 function applyGlucose(msg) {
   if (!msg) return
   try {
-    const val = String(msg.value || '---')
-    setp(R.glucose,   hmUI.prop.TEXT, val)
-    setp(R.glucose,   hmUI.prop.MORE, { color: glucoseColor(val) })
+    setp(R.glucose,   hmUI.prop.TEXT, String(msg.value || '---'))
+    setp(R.glucose,   hmUI.prop.MORE, { color: msg.color || C_GRAY })
     setp(R.delta,     hmUI.prop.TEXT, msg.delta     || '')
-    setp(R.timeDelta, hmUI.prop.TEXT, msg.timeDelta ? msg.timeDelta + 'm' : '')
+    setp(R.timeDelta, hmUI.prop.TEXT, msg.timeDelta || '')
   } catch (e) {}
 }
 
@@ -343,15 +333,14 @@ function applySettings(msg) {
 
 function applyAll(msg) {
   if (!msg) return
+  if (msg.weekday)   setp(R.weekday, hmUI.prop.TEXT, msg.weekday)
   if (msg.glucose)   applyGlucose(msg.glucose)
   if (msg.weather)   applyWeather(msg.weather)
   if (msg.astronomy) applyAstronomy(msg.astronomy)
   if (msg.settings)  applySettings(msg.settings)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Read settings from companion app's hmFS file
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Messaging — watch side via hmBle (MessageBuilder-compatible framing)
@@ -439,8 +428,13 @@ function _scheduleShakeRetry() {
 function _sendFetchAll() {
   if (!_bleConnected) return
   try {
+    // Purge stale pending entries (responses that never arrived)
+    var now = Date.now()
+    for (var k in _pending) {
+      if (_pending.hasOwnProperty(k) && now - _pending[k] > 120000) delete _pending[k]
+    }
     _traceId++
-    _pending[_traceId] = 1
+    _pending[_traceId] = now
     _sendJson(_traceId, { action: 'fetchAll' }, 0x01)
   } catch(e) {}
 }
@@ -448,7 +442,12 @@ function _sendFetchAll() {
 function _startPeriodicFetch() {
   if (_fetchTimer) return
   _fetchTimer = timer.createTimer(FETCH_INTERVAL, FETCH_INTERVAL, function() {
-    _sendFetchAll()
+    // Reset BLE and re-shake; the shake-reply handler calls _sendFetchAll()
+    _bleConnected = false
+    _blePort = 0
+    _shakeRetries = 0
+    _sendShake()
+    _scheduleShakeRetry()
   })
 }
 
@@ -460,9 +459,9 @@ function _stopTimers() {
 function setupMessaging() {
   if (typeof hmBle === 'undefined') return
   try {
-    // Use companion app's appId for BLE — the watchface's own side service
-    // cannot launch (zeus bridge doesn't extract side service for watchfaces)
-    _appId = COMPANION_APP_ID
+    // Connect to companion app (appId 1000090) — watchface packages cannot
+    // run their own phone-side service on this firmware.
+    _appId = 1000090
 
     hmBle.createConnect(function(index, data, size) {
       try {

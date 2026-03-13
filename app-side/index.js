@@ -1,16 +1,18 @@
 /**
- * Rat Scout — Watchface App-side Service (stub)
+ * Rat Scout — Watchface Side Service (stub)
  *
- * The actual data fetching is handled by the companion app's side service
- * (appId 1000090). The watchface sends its BLE shake with the companion's
- * appId, so this file is never loaded at runtime.
+ * The Zepp phone framework does NOT register side services for
+ * appType "watchface" packages, so this file never actually runs.
+ * All data fetching is handled by the companion app's side service
+ * (appId 1000090) instead.
  *
- * It's kept as a minimal stub so that `zeus build` doesn't break —
- * app.json still declares an app-side module.
+ * This file exists because app.json declares a side service entry.
  */
 
-AppSideService({
+import { BaseSideService } from '@zeppos/zml/base-side'
+
+AppSideService(BaseSideService({
   onInit() {},
   onRun() {},
   onDestroy() {},
-})
+}))

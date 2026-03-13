@@ -64,25 +64,27 @@ This project consists of **two Zepp OS packages**:
 /                              ← Watchface (appId 1000089)
 ├── app.json
 ├── app.js
-├── watchface/index.js         ← Watch UI (API 1.0 globals, ~520 lines)
-├── app-side/index.js          ← Phone service: API calls (~430 lines)
-├── setting/index.js           ← (unused — watchfaces can't show settings)
-├── assets/gts4mini/images/    ← 18 PNG icons
+├── package.json               ← @zeppos/zml dependency
+├── watchface/index.js         ← Watch UI (API 1.0 globals)
+├── app-side/index.js          ← Phone service: data fetching (Dexcom, weather, etc.)
+├── setting/index.js           ← (stub — watchfaces can't show settings)
+├── assets/gts4mini/images/    ← 16 PNG icons
 ├── ARCHITECTURE.md            ← Detailed architecture docs
 │
 └── companion_app/             ← Settings companion (appId 1000090)
     ├── app.json
     ├── app.js
     ├── package.json           ← @zeppos/zml dependency
-    ├── page/index.js          ← Watch page: BLE + hmFS (~314 lines)
-    ├── app-side/index.js      ← Phone service: settings relay (~103 lines)
-    ├── setting/index.js       ← Settings UI (~228 lines)
+    ├── page/index.js          ← Watch page: BLE + hmFS
+    ├── app-side/index.js      ← Phone service: settings relay only
+    ├── setting/index.js       ← Settings UI
     └── assets/gts4mini/icon.png
 ```
 
 **Why two packages?** The Zepp phone app does not expose a settings page for
 `appType: "watchface"`. The companion app (`appType: "app"`) provides the settings
-UI and relays configured values to the watch via hmFS file transfer.
+UI and relays configured values to the watch via hmFS file transfer. Data fetching
+(Dexcom, weather, astronomy) is handled by the watchface's own Side Service.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full technical details.
 
@@ -100,6 +102,7 @@ npm install -g @zeppos/zeus-cli
 
 ```bash
 cd /path/to/rat_scout_AGTS4Mini
+npm install        # first time only — installs @zeppos/zml
 zeus build
 ```
 

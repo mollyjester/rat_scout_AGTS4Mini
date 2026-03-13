@@ -29,14 +29,14 @@ The GTS 4 Mini firmware runs API 1.0. The zeus bundler compiles `import` stateme
 | `hmUI` | Widget creation and properties |
 | `hmSensor` | Sensor access |
 | `hmBle` | Bluetooth messaging |
-| `hmFS` | File system (read/write settings JSON) |
+| `hmFS` | File system (read settings JSON) |
 | `hmApp` | App info (`hmApp.packageInfo().appId`) |
 | `WatchFace({})` | Watchface entry point |
 | `Page({})` | App page entry point |
 | `timer` | Timers |
 
 **Phone-side code** (`app-side/index.js`) runs in the Zepp app worker, so imports are OK:
-- Watchface side service: `import` from `@zos/utils`, `@zos/app`, etc.
+- Watchface side service: `import` from `@zeppos/zml/base-side` (bundled by rollup)
 - Companion side service: `import` from `@zeppos/zml/base-side` (bundled by rollup)
 - `AppSideService` is a **GLOBAL** in the worker context — never imported.
 
@@ -87,27 +87,42 @@ y=302  h=82   Bottom zone:
 ## File structure
 
 ```
-watchface/index.js      — Watch-side UI, API 1.0 globals, ~520 lines
-app-side/index.js       — Watchface phone-side service, @zos/* imports, ~430 lines
-setting/index.js        — (unused — Zepp App doesn't show settings for watchfaces)
+watchface/index.js      — Watch-side UI, API 1.0 globals
+                          Only computes: time, date (DD.MM), ISO week, battery, steps
+                          All other values pre-computed by companion
+                          Sends fetchAll to companion Side Service
+                          (appId 1000090) via BLE
+                          Reconnects (re-shakes) before each periodic fetch
+app-side/index.js       — Watchface phone-side service (STUB — never runs)
+                          Zepp firmware does not launch side services for
+                          appType "watchface" packages
+setting/index.js        — (stub — Zepp App doesn't show settings for watchfaces)
 app.js                  — Minimal app entry
 app.json                — App manifest (appId 1000089)
+package.json            — NPM deps: @zeppos/zml ^0.0.9
 ARCHITECTURE.md         — Detailed architecture reference
 assets/gts4mini/
-  images/               — All PNG icons (18 files)
+  icon.png              — App icon
+  images/               — PNG icons (16 files)
     Moon: newmoon, waxingcrescentmoon, firstquartermoon, waxinggibbousmoon,
           fullmoon, waninggibbousmoon, thirdquartermoon, waningcrescentmoon
     Bags: organicbag, greybag, blackbag
-    Weather: sun, umbrella, hourly, temperature, wind
-    Other: steps, bg
+    Weather: sun, umbrella, temperature, wind
+    Other: steps
 
 companion_app/          — Settings companion (appId 1000090)
   app.json              — Manifest (appType "app")
   app.js                — Minimal entry
   package.json          — @zeppos/zml dependency
-  page/index.js         — Watch page: BLE + hmFS ~314 lines
-  app-side/index.js     — Phone service: settingsLib + BLE ~103 lines
-  setting/index.js      — Settings UI: TextInput, Select ~228 lines
+  page/index.js         — Watch page: BLE + hmFS
+  app-side/index.js     — Phone service: settings + data fetching
+                          Handles getSettings (companion page) and
+                          fetchAll (watchface) requests
+                          Reads settings from settingsLib (settingsStorage)
+                          directly — no file transfer needed
+                          Computes: weekday, glucose color, timeDelta suffix,
+                          garbage bag, weather, astronomy, glucose
+  setting/index.js      — Settings UI: TextInput, Select
   assets/gts4mini/icon.png
 ```
 
@@ -148,30 +163,42 @@ Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 - Displays next moonrise/moonset time with moon phase icon (8 phases, 0=new…7=waning crescent)
 
 ### Garbage bin schedule
-- Computed in `app-side/index.js` → `computeGarbageBag()` → returns `'O'`/`'G'`/`'B'`/`null`
+- Computed in `companion_app/app-side/index.js` → `computeGarbageBag()` → returns `'O'`/`'G'`/`'B'`/`null`
 - Watch shows the corresponding bag icon in the status bar; hidden when no pickup
 
 ---
 
 ## Messaging (watch ↔ phone)
 
-### Watchface ↔ Watchface Side Service
+### Watchface ↔ Companion Side Service
 The watch side cannot use `@zos/utils` `messageBuilder`. Instead, `watchface/index.js` implements inline `hmBle` framing compatible with the MessageBuilder protocol:
 
-1. Watch sends a shake packet (`outerType=0x01`) to initiate
+1. Watch sends a shake packet (`outerType=0x01`) to initiate — uses **companion appId** (1000090)
 2. Phone replies with shake response; watch learns `_blePort` from reply's `port2`
-3. Watch sends JSON request `{ action: 'fetchAll', settings: {...} }` wrapped in 16-byte outer + 66-byte inner header
-4. Phone responds with data; watch parses and calls `applyAll(msg.data)`
+3. Watch sends JSON request `{ action: 'fetchAll' }` wrapped in 16-byte outer + 66-byte inner header
+4. Phone responds with data; watch parses and calls `applyAll(msg.result)`
 
-Phone side uses `messageBuilder.listen()` from `@zos/utils`.
+The watchface targets the companion's appId (1000090) because Zepp firmware does NOT
+register side services for `appType: "watchface"` packages (appId 1000089's side
+service never launches).
+
+The companion's Side Service uses `@zeppos/zml` `BaseSideService` for BLE handling
+and handles both `getSettings` (from companion page) and `fetchAll` (from watchface).
+The Side Service reads settings directly from `settingsLib` (`settingsStorage`) for
+all API calls — no settings are passed in the BLE request.
+
+Periodic refresh uses reconnect-before-fetch: every 5 min the watchface sets
+`_bleConnected = false`, re-shakes, and on reply sends `fetchAll`.
 
 ### Companion Page ↔ Companion Side Service
 Same binary framing (16-byte outer + 66-byte inner). Side Service uses `@zeppos/zml` `BaseSideService` (internally uses `messaging.peerSocket`). ZML wraps `res(null, data)` as `{ result: data }` in BLE JSON — page must unwrap `msg.result`.
 
 ### Settings flow
 1. User configures settings in Zepp App (companion's Settings App UI)
-2. User opens companion app on watch → BLE request → gets settings → writes `rat_scout_settings.json` to hmFS
-3. Watchface reads file on init → passes settings in `fetchAll` BLE request → Side Service uses as `_overrideSettings`
+2. Values stored in companion app's `settingsStorage` (phone-side k/v store)
+3. Watchface sends `{ action: 'fetchAll' }` via BLE to companion Side Service (appId 1000090)
+4. Companion Side Service reads settings from `settingsLib` / `settingsStorage` directly
+5. Companion Side Service uses those settings for all API calls
 
 ---
 

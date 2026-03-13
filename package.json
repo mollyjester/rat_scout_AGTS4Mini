@@ -1,0 +1,9 @@
+{
+  "name": "rat-scout-watchface",
+  "version": "1.0.0",
+  "description": "Rat Scout watchface for Amazfit GTS 4 Mini",
+  "main": "app.js",
+  "dependencies": {
+    "@zeppos/zml": "^0.0.9"
+  }
+}
