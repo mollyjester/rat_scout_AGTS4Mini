@@ -9,8 +9,7 @@
  *   1. Dexcom Account — login, password, region
  *   2. Blood Glucose  — units
  *   3. Weather        — OWM API key, units
- *   4. Astronomy      — ipgeolocation.io API key
- *   5. Garbage Collection — pickup hour, day checkboxes per bag type
+ *   4. Garbage Collection — pickup hour, day checkboxes per bag type
  */
 
 AppSettingsPage({
@@ -152,21 +151,6 @@ AppSettingsPage({
             { name: 'mg/dL', value: 'mgdl' },
             { name: 'mmol/L', value: 'mmol' },
           ],
-        }),        Select({
-          label: 'Show BG Delta',
-          settingsKey: 'bg_show_delta',
-          options: [
-            { name: 'Yes', value: 'true' },
-            { name: 'No', value: 'false' },
-          ],
-        }),
-        Select({
-          label: 'Show Time Since Reading',
-          settingsKey: 'bg_show_time_delta',
-          options: [
-            { name: 'Yes', value: 'true' },
-            { name: 'No', value: 'false' },
-          ],
         }),      ]),
 
       // ── 3. Weather ──────────────────────────────────────────────────────
@@ -198,20 +182,7 @@ AppSettingsPage({
           ],
         }),      ]),
 
-      // ── 4. Astronomy ───────────────────────────────────────────────────
-      Section({
-        title: 'Astronomy',
-        description: 'Enter your ipgeolocation.io API key to display sunrise/' +
-          'sunset and moonrise/moonset. Get a free key at ipgeolocation.io',
-      }, [
-        TextInput({
-          label: 'ipgeolocation.io API Key',
-          settingsKey: 'ipgeo_api_key',
-          placeholder: 'Your ipgeolocation API key',
-        }),
-      ]),
-
-      // ── 5. Garbage Collection ───────────────────────────────────────────
+      // ── 4. Garbage Collection ───────────────────────────────────────────
       Section({ title: 'Garbage Collection' }, [
         TextInput({
           label: 'Pickup Hour (0-23, bags roll over after this hour)',

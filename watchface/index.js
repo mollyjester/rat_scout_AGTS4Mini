@@ -3,71 +3,51 @@
  *
  * Reimplementation of https://github.com/mollyjester/rat_scout
  *
- * Layout (portrait 336×384):
- *   y=  0  h=42   Status bar: weekday | garbage bag | battery
- *   y= 44  h=116  Time  (HH:MM, large)
- *   y=162  h=82   Glucose zone (CGM value | delta + age)
- *   y=246  h=54   Date zone (DD.MM | Wnn)
- *   y=302  h=82   Bottom zone: [sun/moon] | [temp / wind+steps]
+ * Layout (portrait 336×384, 80px corner rounding):
+ *   y=  0  h=42   Status bar: garbage bag | weekday | battery % + bar
+ *   y= 44  h=34   Date zone (DD.MM | Wnn) — above time
+ *   y= 78  h=116  Time (HH:MM, left-aligned with 80px padding)
+ *   y=196  h=60   Glucose zone (value + trend arrow, centered)
+ *   y=260  h=42   Weather row: temp | wind | umbrella
+ *   y=306  h=38   Steps row
  */
 
 // API 1.0 — globals: hmUI, hmSensor, hmBle, WatchFace (no @zos/* imports)
 
 // ── Screen ───────────────────────────────────────────────────────────────────
-const W = 336
-const H = 384
+var W = 336
+var H = 384
 
 // ── Colours ──────────────────────────────────────────────────────────────────
-const C_WHITE  = 0xFFFFFF
-const C_YELLOW = 0xFFFF00
-const C_CYAN   = 0x00FFFF
-const C_RED    = 0xFF3030
-const C_ORANGE = 0xFF8C00
-const C_GREEN  = 0x44FF44
-const C_GRAY   = 0x888888
-const C_DKGRAY = 0x333333
-const C_BAR    = 0x141414
+var C_WHITE  = 0xFFFFFF
+var C_YELLOW = 0xFFFF00
+var C_RED    = 0xFF3030
+var C_ORANGE = 0xFF8C00
+var C_GREEN  = 0x44FF44
+var C_GRAY   = 0x888888
+var C_DKGRAY = 0x333333
+var C_BAR    = 0x141414
+var C_TIME   = 0x343e9f
 
 // ── Font sizes ────────────────────────────────────────────────────────────────
-const FS_TIME  = 80
-const FS_GLUC  = 48
-const FS_DATE  = 34
-const FS_NORM  = 26
-const FS_SMALL = 20
-
-// ── Moon phase images ────────────────────────────────────────────────────────
-const MOON_IMGS = [
-  'images/newmoon.png',
-  'images/waxingcrescentmoon.png',
-  'images/firstquartermoon.png',
-  'images/waxinggibbousmoon.png',
-  'images/fullmoon.png',
-  'images/waninggibbousmoon.png',
-  'images/thirdquartermoon.png',
-  'images/waningcrescentmoon.png',
-]
-
-
+var FS_TIME  = 100
+var FS_GLUC  = 48
+var FS_DATE  = 34
+var FS_SMALL = 20
 
 // ── Garbage bag images ────────────────────────────────────────────────────────
-const BAG_IMGS = { O: 'images/organicbag.png', G: 'images/greybag.png', B: 'images/blackbag.png' }
+var BAG_IMGS = { O: 'images/organicbag.png', G: 'images/greybag.png', B: 'images/blackbag.png' }
 
 // ── Widget refs (populated in build functions) ────────────────────────────────
-const R = {}
+var R = {}
 
 // ── Sensors ───────────────────────────────────────────────────────────────────
-let _time, _ped, _bat
+var _time, _ped, _bat
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let _lastHour = -1
-let _lastFetchTime = 0
-let _fetchInProgress = false
-let _glucoseTimestamp = 0
-let _lastTrendArrow = ''
-let _showBgDelta = true
-let _showTimeDelta = true
-
-
+var _lastHour = -1
+var _lastFetchTime = 0
+var _fetchInProgress = false
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -78,14 +58,12 @@ function pad2(n) {
 }
 
 function isoWeek(date) {
-  const d = new Date(date)
+  var d = new Date(date)
   d.setHours(0, 0, 0, 0)
   d.setDate(d.getDate() + 4 - (d.getDay() || 7))
-  const yearStart = new Date(d.getFullYear(), 0, 1)
+  var yearStart = new Date(d.getFullYear(), 0, 1)
   return Math.ceil(((d - yearStart) / 86400000 + 1) / 7)
 }
-
-
 
 /** Safe createWidget — returns null instead of throwing */
 function mkw(type, params) {
@@ -100,21 +78,12 @@ function setp(wref, key, val) {
 function showGlucoseLoading() {
   _fetchInProgress = true
   setp(R.glucoseLoading, hmUI.prop.VISIBLE, true)
-  setp(R.glucose,   hmUI.prop.TEXT, '')
-  setp(R.delta,     hmUI.prop.TEXT, '')
-  setp(R.timeDelta, hmUI.prop.TEXT, '')
+  setp(R.glucose, hmUI.prop.TEXT, '')
 }
 
 function hideGlucoseLoading() {
   _fetchInProgress = false
   setp(R.glucoseLoading, hmUI.prop.VISIBLE, false)
-}
-
-function updateGlucoseTimeDelta() {
-  if (_fetchInProgress || _glucoseTimestamp <= 0) return
-  if (!_showTimeDelta) { setp(R.timeDelta, hmUI.prop.TEXT, ''); return }
-  var mins = Math.round((Date.now() - _glucoseTimestamp) / 60000)
-  setp(R.timeDelta, hmUI.prop.TEXT, mins + 'm')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,146 +93,108 @@ function updateGlucoseTimeDelta() {
 function buildStatusBar() {
   mkw(hmUI.widget.FILL_RECT, { x: 0, y: 0, w: W, h: 42, color: C_BAR, radius: 0 })
 
-  // Left icons: umbrella (hidden), garbage bag (hidden)
-  R.umbrella = mkw(hmUI.widget.IMG, { x: 8, y: 5, w: 32, h: 32, src: 'images/umbrella.png' })
-  setp(R.umbrella, hmUI.prop.VISIBLE, false)
-
-  R.garbage = mkw(hmUI.widget.IMG, { x: 44, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
+  // Garbage bag icon (hidden by default) — inset for 80px rounding
+  R.garbage = mkw(hmUI.widget.IMG, { x: 80, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
   setp(R.garbage, hmUI.prop.VISIBLE, false)
 
-  // Weekday (center area)
+  // Weekday — positioned after garbage bag area
   R.weekday = mkw(hmUI.widget.TEXT, {
-    x: 100, y: 2, w: 90, h: 38,
+    x: 116, y: 2, w: 60, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '---',
   })
 
-  // Battery percentage
+  // Battery percentage — right next to weekday
   R.batPct = mkw(hmUI.widget.TEXT, {
-    x: 200, y: 2, w: 62, h: 38,
+    x: 176, y: 2, w: 50, h: 38,
     color: C_GRAY, text_size: FS_SMALL,
     align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
     text: '--%',
   })
 
   // Battery bar background + fill
-  mkw(hmUI.widget.FILL_RECT, { x: 266, y: 13, w: 62, h: 16, color: C_DKGRAY, radius: 2 })
-
+  mkw(hmUI.widget.FILL_RECT, { x: 230, y: 13, w: 28, h: 16, color: C_DKGRAY, radius: 2 })
   R.batBar = mkw(hmUI.widget.FILL_RECT, {
-    x: 268, y: 15, w: 58, h: 12, color: C_GREEN, radius: 1,
+    x: 231, y: 14, w: 26, h: 14, color: C_GREEN, radius: 1,
+  })
+}
+
+function buildDateZone() {
+  R.date = mkw(hmUI.widget.TEXT, {
+    x: 80, y: 44, w: 100, h: 34,
+    color: C_WHITE, text_size: FS_SMALL,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
+    text: '--:--',
+  })
+
+  R.week = mkw(hmUI.widget.TEXT, {
+    x: 184, y: 44, w: 80, h: 34,
+    color: C_GRAY, text_size: FS_SMALL,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
+    text: 'W--',
   })
 }
 
 function buildTimeZone() {
   R.time = mkw(hmUI.widget.TEXT, {
-    x: 0, y: 44, w: W, h: 116,
-    color: C_WHITE, text_size: FS_TIME,
-    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
+    x: 80, y: 78, w: W - 80, h: 116,
+    color: C_TIME, text_size: FS_TIME,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--:--',
   })
 }
 
 function buildGlucoseZone() {
-  mkw(hmUI.widget.FILL_RECT, { x: 8, y: 161, w: W - 16, h: 1, color: C_DKGRAY })
-
   R.glucose = mkw(hmUI.widget.TEXT, {
-    x: 0, y: 162, w: 200, h: 82,
+    x: 0, y: 196, w: W, h: 60,
     color: C_GREEN, text_size: FS_GLUC,
-    align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
+    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     text: '',
   })
 
-  R.delta = mkw(hmUI.widget.TEXT, {
-    x: 208, y: 164, w: 128, h: 36,
-    color: C_CYAN, text_size: FS_NORM,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '',
-  })
-
-  R.timeDelta = mkw(hmUI.widget.TEXT, {
-    x: 208, y: 204, w: 128, h: 36,
-    color: C_GRAY, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '',
-  })
-
-  // Loading indicator — try IMG_ANIM first, fall back to static IMG
+  // Loading indicator
   R.glucoseLoading = mkw(hmUI.widget.IMG_ANIM, {
-    x: 80, y: 182, w: 32, h: 32,
+    x: 152, y: 210, w: 32, h: 32,
     anim_path: 'images', anim_prefix: 'loading', anim_ext: 'png',
     anim_fps: 4, anim_size: 8, repeat_count: 0,
     anim_status: hmUI.anim_status.START,
   })
   if (!R.glucoseLoading) {
     R.glucoseLoading = mkw(hmUI.widget.IMG, {
-      x: 80, y: 182, w: 32, h: 32, src: 'images/loading_0.png',
+      x: 152, y: 210, w: 32, h: 32, src: 'images/loading_0.png',
     })
   }
 }
 
-function buildDateZone() {
-  mkw(hmUI.widget.FILL_RECT, { x: 8, y: 245, w: W - 16, h: 1, color: C_DKGRAY })
+function buildWeatherRow() {
+  // Umbrella icon (hidden by default)
+  R.umbrella = mkw(hmUI.widget.IMG, { x: 80, y: 264, w: 32, h: 32, src: 'images/umbrella.png' })
+  setp(R.umbrella, hmUI.prop.VISIBLE, false)
 
-  R.date = mkw(hmUI.widget.TEXT, {
-    x: 0, y: 247, w: 176, h: 52,
-    color: C_WHITE, text_size: FS_DATE,
-    align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
-    text: '--:--',
+  // Temperature
+  mkw(hmUI.widget.IMG, { x: 80, y: 264, w: 22, h: 32, src: 'images/temperature.png' })
+  R.temp = mkw(hmUI.widget.TEXT, {
+    x: 104, y: 260, w: 60, h: 42,
+    color: C_WHITE, text_size: FS_SMALL,
+    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
+    text: '--',
   })
 
-  R.week = mkw(hmUI.widget.TEXT, {
-    x: 184, y: 247, w: 152, h: 52,
-    color: C_GRAY, text_size: FS_DATE,
+  // Wind
+  mkw(hmUI.widget.IMG, { x: 170, y: 264, w: 22, h: 32, src: 'images/wind.png' })
+  R.wind = mkw(hmUI.widget.TEXT, {
+    x: 194, y: 260, w: 60, h: 42,
+    color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: 'W--',
+    text: '--',
   })
 }
 
-function buildBottomZone() {
-  mkw(hmUI.widget.FILL_RECT, { x: 8, y: 301, w: W - 16, h: 1, color: C_DKGRAY })
-  // Vertical divider between left (sun/moon) and right (weather/steps) columns
-  mkw(hmUI.widget.FILL_RECT, { x: 168, y: 303, w: 1, h: 79, color: C_DKGRAY })
-
-  // ── Left: Sun row ───────────────────────────────────────────────────────────
-  R.sunDir = mkw(hmUI.widget.IMG, { x: 8, y: 306, w: 32, h: 32, src: 'images/sun.png' })
-  R.sunTime = mkw(hmUI.widget.TEXT, {
-    x: 44, y: 303, w: 120, h: 38,
-    color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '--:--',
-  })
-
-  // ── Left: Moon row ──────────────────────────────────────────────────────────
-  R.moonPhase = mkw(hmUI.widget.IMG, { x: 8, y: 346, w: 32, h: 32, src: MOON_IMGS[0] })
-  R.moonTime = mkw(hmUI.widget.TEXT, {
-    x: 44, y: 343, w: 120, h: 38,
-    color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '--:--',
-  })
-
-  // ── Right top: Temperature + Wind ───────────────────────────────────────────
-  mkw(hmUI.widget.IMG, { x: 174, y: 306, w: 22, h: 32, src: 'images/temperature.png' })
-  R.temp = mkw(hmUI.widget.TEXT, {
-    x: 198, y: 303, w: 56, h: 38,
-    color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '--',
-  })
-
-  mkw(hmUI.widget.IMG, { x: 256, y: 306, w: 22, h: 32, src: 'images/wind.png' })
-  R.wind = mkw(hmUI.widget.TEXT, {
-    x: 280, y: 303, w: 56, h: 38,
-    color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
-    text: '--',
-  })
-
-  // ── Right bottom: Steps ─────────────────────────────────────────────────────
-  mkw(hmUI.widget.IMG, { x: 174, y: 346, w: 20, h: 32, src: 'images/steps.png' })
+function buildStepsRow() {
+  mkw(hmUI.widget.IMG, { x: 80, y: 308, w: 20, h: 32, src: 'images/steps.png' })
   R.steps = mkw(hmUI.widget.TEXT, {
-    x: 198, y: 343, w: 132, h: 38,
+    x: 104, y: 306, w: 132, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '0',
@@ -271,14 +202,14 @@ function buildBottomZone() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Update functions (guard against null sensor and null widget refs)
+// Update functions
 // ─────────────────────────────────────────────────────────────────────────────
 
 function updateTime() {
   if (!_time) return
   try {
-    const h = _time.hour
-    const m = _time.minute
+    var h = _time.hour
+    var m = _time.minute
     if (h === undefined) return
     setp(R.time, hmUI.prop.TEXT, pad2(h) + ':' + pad2(m))
     if (h !== _lastHour) {
@@ -291,13 +222,12 @@ function updateTime() {
 function updateDate() {
   if (!_time) return
   try {
-    const day   = _time.day
-    const month = _time.month
-    const year  = _time.year
-    const week  = _time.week   // 0=Sun … 6=Sat
+    var day   = _time.day
+    var month = _time.month
+    var year  = _time.year
     if (day === undefined) return
-    setp(R.date,    hmUI.prop.TEXT, pad2(day) + '.' + pad2(month))
-    const wn = isoWeek(new Date(year, month - 1, day))
+    setp(R.date, hmUI.prop.TEXT, pad2(day) + '.' + pad2(month))
+    var wn = isoWeek(new Date(year, month - 1, day))
     setp(R.week, hmUI.prop.TEXT, 'W' + pad2(wn))
   } catch (e) {}
 }
@@ -305,18 +235,18 @@ function updateDate() {
 function updateBattery() {
   if (!_bat) return
   try {
-    const lvl = _bat.current
+    var lvl = _bat.current
     if (lvl === undefined || lvl === null) return
     setp(R.batPct, hmUI.prop.TEXT, lvl + '%')
-    const color = lvl > 50 ? C_GREEN : lvl > 20 ? C_YELLOW : C_RED
-    setp(R.batBar, hmUI.prop.MORE, { color, w: Math.max(2, Math.round(58 * lvl / 100)) })
+    var color = lvl > 50 ? C_GREEN : lvl > 20 ? C_YELLOW : C_RED
+    setp(R.batBar, hmUI.prop.MORE, { color: color, w: Math.max(2, Math.round(26 * lvl / 100)) })
   } catch (e) {}
 }
 
 function updateSteps() {
   if (!_ped) return
   try {
-    const s = _ped.current
+    var s = _ped.current
     if (s === undefined || s === null) return
     setp(R.steps, hmUI.prop.TEXT, s >= 1000 ? (s / 1000).toFixed(1) + 'k' : '' + s)
   } catch (e) {}
@@ -330,15 +260,10 @@ function applyGlucose(msg) {
   if (!msg) return
   try {
     hideGlucoseLoading()
-    _glucoseTimestamp = msg.readingTime || 0
-    _lastTrendArrow = msg.trendArrow || ''
     var displayVal = String(msg.value || '---')
-    if (_lastTrendArrow && displayVal !== '---') displayVal += ' ' + _lastTrendArrow
-    setp(R.glucose,   hmUI.prop.TEXT, displayVal)
-    setp(R.glucose,   hmUI.prop.MORE, { color: msg.color || C_GRAY })
-    setp(R.delta,     hmUI.prop.TEXT, _showBgDelta ? (msg.delta || '') : '')
-    setp(R.timeDelta, hmUI.prop.TEXT, _showTimeDelta ? (msg.timeDelta || '') : '')
-    updateGlucoseTimeDelta()
+    if (msg.trendArrow && displayVal !== '---') displayVal += ' ' + msg.trendArrow
+    setp(R.glucose, hmUI.prop.TEXT, displayVal)
+    setp(R.glucose, hmUI.prop.MORE, { color: msg.color || C_GRAY })
   } catch (e) {}
 }
 
@@ -353,58 +278,42 @@ function applyWeather(msg) {
   } catch (e) {}
 }
 
-function applyAstronomy(msg) {
-  if (!msg) return
-  try {
-    if (msg.sunTime)  setp(R.sunTime,  hmUI.prop.TEXT, msg.sunTime)
-    if (msg.moonTime) setp(R.moonTime, hmUI.prop.TEXT, msg.moonTime)
-    if (typeof msg.moonPhase === 'number') {
-      setp(R.moonPhase, hmUI.prop.SRC, MOON_IMGS[msg.moonPhase] || MOON_IMGS[0])
-    }
-  } catch (e) {}
-}
-
 function applySettings(msg) {
   if (!msg) return
   try {
     if (msg.garbageBag && BAG_IMGS[msg.garbageBag]) {
-      setp(R.garbage, hmUI.prop.SRC,     BAG_IMGS[msg.garbageBag])
+      setp(R.garbage, hmUI.prop.SRC, BAG_IMGS[msg.garbageBag])
       setp(R.garbage, hmUI.prop.VISIBLE, true)
     } else {
       setp(R.garbage, hmUI.prop.VISIBLE, false)
     }
-    if (msg.showBgDelta !== undefined) _showBgDelta = !!msg.showBgDelta
-    if (msg.showTimeDelta !== undefined) _showTimeDelta = !!msg.showTimeDelta
   } catch (e) {}
 }
 
 function applyAll(msg) {
   if (!msg) return
-  if (msg.weekday)   setp(R.weekday, hmUI.prop.TEXT, msg.weekday)
-  if (msg.glucose)   applyGlucose(msg.glucose)
-  else               hideGlucoseLoading()   // fetch failed — let staleness show
-  if (msg.weather)   applyWeather(msg.weather)
-  if (msg.astronomy) applyAstronomy(msg.astronomy)
-  if (msg.settings)  applySettings(msg.settings)
+  if (msg.weekday) setp(R.weekday, hmUI.prop.TEXT, msg.weekday)
+  if (msg.glucose) applyGlucose(msg.glucose)
+  else             hideGlucoseLoading()
+  if (msg.weather) applyWeather(msg.weather)
+  if (msg.settings) applySettings(msg.settings)
 }
-
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Messaging — watch side via hmBle (MessageBuilder-compatible framing)
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _blePort = 0
-let _traceId = 10000
-let _spanId  = 1000
-let _pending = {}
-let _appId   = 0
-let _bleConnected = false
-let _shakeRetries = 0
-let _shakeTimer   = null
+var _blePort = 0
+var _traceId = 10000
+var _spanId  = 1000
+var _pending = {}
+var _appId   = 0
+var _bleConnected = false
+var _shakeRetries = 0
+var _shakeTimer   = null
 var SHAKE_MAX_RETRIES = 15
-var SHAKE_BASE_DELAY  = 3000   // 3 s, increases with each retry
-var FETCH_INTERVAL_MIN = 5    // minutes between fetches
+var SHAKE_BASE_DELAY  = 3000
+var FETCH_INTERVAL_MIN = 5
 
 function _u16(b, o, v) { b[o] = v & 0xFF; b[o+1] = (v>>8) & 0xFF }
 function _u32(b, o, v) { b[o] = v&0xFF; b[o+1]=(v>>8)&0xFF; b[o+2]=(v>>16)&0xFF; b[o+3]=(v>>24)&0xFF }
@@ -429,16 +338,16 @@ function _buildInner(traceId, totalLen, dataBytes, payloadType) {
   _spanId++
   var buf = new Uint8Array(66 + dataBytes.length), o=0
   _u32(buf,o,traceId);  o+=4
-  _u32(buf,o,0);        o+=4   // parentId
+  _u32(buf,o,0);        o+=4
   _u32(buf,o,_spanId);  o+=4
-  _u32(buf,o,1);        o+=4   // seqId=1
+  _u32(buf,o,1);        o+=4
   _u32(buf,o,totalLen); o+=4
   _u32(buf,o,dataBytes.length); o+=4
   buf[o++]=payloadType
-  buf[o++]=0x01          // opCode=Finished
+  buf[o++]=0x01
   var ts=(Date.now()%10000000)|0; _u32(buf,o,ts); o+=4
-  for(var i=1;i<8;i++){_u32(buf,o,0);o+=4}  // timestamps 2-8
-  _u32(buf,o,0);o+=4; _u32(buf,o,0);o+=4  // extra1,2
+  for(var i=1;i<8;i++){_u32(buf,o,0);o+=4}
+  _u32(buf,o,0);o+=4; _u32(buf,o,0);o+=4
   for(var j=0;j<dataBytes.length;j++) buf[o+j]=dataBytes[j]
   return buf
 }
@@ -475,7 +384,6 @@ function _scheduleShakeRetry() {
 function _sendFetchAll() {
   if (!_bleConnected) return
   try {
-    // Purge stale pending entries (responses that never arrived)
     var now = Date.now()
     for (var k in _pending) {
       if (_pending.hasOwnProperty(k) && now - _pending[k] > 120000) delete _pending[k]
@@ -486,9 +394,6 @@ function _sendFetchAll() {
   } catch(e) {}
 }
 
-// MINUTEEND does NOT fire when the screen is off on the GTS 4 Mini.
-// We use WIDGET_DELEGATE resume_call (fires on wrist-raise / screen-on)
-// combined with MINUTEEND for updates while the screen stays on.
 function _triggerPeriodicFetch() {
   showGlucoseLoading()
   _lastFetchTime = Date.now()
@@ -500,11 +405,8 @@ function _triggerPeriodicFetch() {
 }
 
 function _onResume() {
-  // Screen just turned on — update display immediately
   try { updateTime()  } catch(e) {}
   try { updateSteps() } catch(e) {}
-  try { updateGlucoseTimeDelta() } catch(e) {}
-  // Trigger fetch if enough time has passed (or if this is the first resume)
   if (_lastFetchTime === 0 || (Date.now() - _lastFetchTime) >= FETCH_INTERVAL_MIN * 60000) {
     _triggerPeriodicFetch()
   }
@@ -513,21 +415,18 @@ function _onResume() {
 function _onMinuteTick() {
   updateTime()
   updateSteps()
-  try { updateGlucoseTimeDelta() } catch(e) {}
   if (_lastFetchTime > 0 && (Date.now() - _lastFetchTime) >= FETCH_INTERVAL_MIN * 60000) {
     _triggerPeriodicFetch()
   }
 }
 
 function _stopTimers() {
-  if (_shakeTimer)  { try { timer.stopTimer(_shakeTimer)  } catch(e) {} _shakeTimer  = null }
+  if (_shakeTimer) { try { timer.stopTimer(_shakeTimer) } catch(e) {} _shakeTimer = null }
 }
 
 function setupMessaging() {
   if (typeof hmBle === 'undefined') return
   try {
-    // Connect to companion app (appId 1000090) — watchface packages cannot
-    // run their own phone-side service on this firmware.
     _appId = 1000090
 
     hmBle.createConnect(function(index, data, size) {
@@ -538,7 +437,6 @@ function setupMessaging() {
         var port2     = arr[4] | (arr[5]<<8)
 
         if (outerType === 0x1) {
-          // Shake reply — side service is up, learn appSidePort
           _bleConnected = true
           _shakeRetries = 0
           if (_shakeTimer) { try { timer.stopTimer(_shakeTimer) } catch(e) {} _shakeTimer = null }
@@ -549,7 +447,6 @@ function setupMessaging() {
         }
 
         if (outerType === 0x2) {
-          // Shake error — side service not ready yet, schedule retry
           _scheduleShakeRetry()
           return
         }
@@ -557,7 +454,6 @@ function setupMessaging() {
         if ((outerType === 0x4 || outerType === 0x5) && arr.length > 82) {
           try {
             var traceId   = _r32(arr, 16)
-            var totalLen  = _r32(arr, 32)
             var payLen    = _r32(arr, 36)
             var payType   = arr[40]
             var dataStart = 82
@@ -566,25 +462,20 @@ function setupMessaging() {
             var msg = JSON.parse(str)
             if (payType === 0x02 && _pending[traceId]) {
               delete _pending[traceId]
-              // ZML wraps responses as {result: data}, messageBuilder uses {data: data}
               var body = (msg && msg.result) || (msg && msg.data) || msg
               if (body) applyAll(body)
             } else if (payType === 0x03 && msg) {
-              if (msg.type === 'all')       applyAll(msg)
-              if (msg.type === 'glucose')   applyGlucose(msg)
-              if (msg.type === 'weather')   applyWeather(msg)
-              if (msg.type === 'astronomy') applyAstronomy(msg)
-              if (msg.type === 'settings')  applySettings(msg)
+              if (msg.type === 'all')      applyAll(msg)
+              if (msg.type === 'glucose')  applyGlucose(msg)
+              if (msg.type === 'weather')  applyWeather(msg)
+              if (msg.type === 'settings') applySettings(msg)
             }
           } catch(e) {}
         }
       } catch(e) {}
     })
 
-    // Send initial shake handshake
     _sendShake()
-    // If it fails, the outerType=0x02 handler will trigger retries
-    // Also schedule a safety-net retry in case no response at all
     _scheduleShakeRetry()
   } catch(e) {}
 }
@@ -601,18 +492,19 @@ WatchFace({
   },
 
   build() {
+    try { mkw(hmUI.widget.IMG, { x: 0, y: 0, src: 'images/bg.png' }) } catch (e) {}
     try { buildStatusBar()   } catch (e) {}
+    try { buildDateZone()    } catch (e) {}
     try { buildTimeZone()    } catch (e) {}
     try { buildGlucoseZone() } catch (e) {}
-    try { buildDateZone()    } catch (e) {}
-    try { buildBottomZone()  } catch (e) {}
+    try { buildWeatherRow()  } catch (e) {}
+    try { buildStepsRow()    } catch (e) {}
 
     updateTime()
     updateDate()
     updateBattery()
     updateSteps()
 
-    // WIDGET_DELEGATE — resume_call fires on wrist-raise / screen-on
     try {
       hmUI.createWidget(hmUI.widget.WIDGET_DELEGATE, {
         resume_call: function() { try { _onResume() } catch(e) {} },

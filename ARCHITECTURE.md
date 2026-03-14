@@ -18,7 +18,8 @@ This project consists of **two Zepp OS packages** that work together:
 | Toolchain | zeus-cli v1.8.2 (`~/.nvm/versions/node/v24.13.1/bin/zeus`) |
 | Build | `zeus build` (run separately in root and `companion_app/`) |
 | Dev/Bridge | `zeus bridge` → `connect` → `install` |
-| Preview | `zeus preview` (simulator at `http://127.0.0.1:7650`) |
+| Simulator | `zeus dev` (requires simulator running at `/opt/simulator/`) |
+| Preview | `zeus preview` (generates QR code for real device install) |
 
 ---
 

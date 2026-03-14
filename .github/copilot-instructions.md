@@ -79,16 +79,15 @@ hmUI.createWidget(hmUI.widget.WIDGET_DELEGATE, {
 
 ---
 
-## Layout (336×384 portrait)
+## Layout (336×384 portrait, 80px corner rounding)
 
 ```
-y=  0  h=42   Status bar: weekday | garbage bag icon | battery %  + graphical bar
-y= 44  h=116  Time (HH:MM, large font)
-y=162  h=82   Glucose zone: CGM value (left) | delta + age (right)
-y=246  h=54   Date zone: DD.MM (left) | Wnn ISO week (right)
-y=302  h=82   Bottom zone:
-               Left col (x=8..167):   sun icon + time / moon phase icon + time
-               Right col (x=168..335): temperature icon + value / wind icon + value / steps icon + count
+y=  0  h=42   Status bar: garbage bag icon | weekday | battery % + bar  (x≥80 for rounding)
+y= 44  h=34   Date zone: DD.MM (left) | Wnn ISO week (right)  (above time)
+y= 78  h=116  Time (HH:MM, 100pt, color #343e9f, left-aligned x=80)
+y=196  h=60   Glucose zone: CGM value + trend arrow (centered)
+y=260  h=42   Weather row: temperature icon+value | wind icon+value
+y=306  h=38   Steps row: steps icon + count
 ```
 
 ---
@@ -114,12 +113,10 @@ package.json            — NPM deps: @zeppos/zml ^0.0.9
 ARCHITECTURE.md         — Detailed architecture reference
 assets/gts4mini/
   icon.png              — App icon
-  images/               — PNG icons (16 files)
-    Moon: newmoon, waxingcrescentmoon, firstquartermoon, waxinggibbousmoon,
-          fullmoon, waninggibbousmoon, thirdquartermoon, waningcrescentmoon
+  images/               — PNG icons
     Bags: organicbag, greybag, blackbag
-    Weather: sun, umbrella, temperature, wind
-    Other: steps
+    Weather: umbrella, temperature, wind
+    Other: steps, loading_0–7, bg
 
 companion_app/          — Settings companion (appId 1000090)
   app.json              — Manifest (appType "app")
@@ -131,8 +128,8 @@ companion_app/          — Settings companion (appId 1000090)
                           fetchAll (watchface) requests
                           Reads settings from settingsLib (settingsStorage)
                           directly — no file transfer needed
-                          Computes: weekday, glucose color, timeDelta suffix,
-                          garbage bag, weather, astronomy, glucose
+                          Computes: weekday, glucose color,
+                          garbage bag, weather, glucose
   setting/index.js      — Settings UI: TextInput, Select
   assets/gts4mini/icon.png
 ```
@@ -149,14 +146,11 @@ companion_app/          — Settings companion (appId 1000090)
 | `bg_units` | `mgdl` or `mmol` |
 | `owm_api_key` | OpenWeatherMap API key |
 | `weather_units` | `metric` or `imperial` |
-| `ipgeo_api_key` | ipgeolocation.io API key |
+| `weather_interval` | Weather cache interval in minutes: `30`/`60`/`120`/`180` (default `60`) |
 | `garbage_organic` | CSV of day numbers (0=Mon…6=Sun) |
 | `garbage_grey` | CSV of day numbers |
 | `garbage_black` | CSV of day numbers |
 | `garbage_hour` | Hour after which next-day bag shown (default 9) |
-| `bg_show_delta` | Show BG delta: `true` or `false` (default `true`) |
-| `bg_show_time_delta` | Show time since reading: `true` or `false` (default `true`) |
-| `weather_interval` | Weather cache interval in minutes: `30`/`60`/`120`/`180` (default `60`) |
 
 Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 
@@ -167,10 +161,8 @@ Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 ### Glucose (Dexcom CGM)
 - Fetches from Dexcom Share API (US: `share2.dexcom.com`, OUS: `shareous1.dexcom.com`, JP: `share.dexcom.jp`)
 - Session persistence: session/account IDs cached in `settingsLib` (`_dex_session` key), restored on next fetch
-- Displays value + trend arrow (e.g. `"142 ↗"`), delta (±), and age in minutes
+- Displays value + trend arrow (e.g. `"142 ↗"`), centered below time
 - Trend arrows: `↑↑`, `↑`, `↗`, `→`, `↘`, `↓`, `↓↓`, `?`, `⚠` mapped from Dexcom `Trend` field
-- Time delta computed on watch from stored `_glucoseTimestamp` (updates on every screen-on)
-- BG delta and time delta visibility controlled by settings toggles
 - Loading spinner shown in glucose zone during every BLE fetch (hides old data)
 - Color: green (70–180 mg/dL), orange (>180), red (<70), gray (error)
 
@@ -179,12 +171,6 @@ Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 - Displays temperature and wind speed
 - Umbrella flag: current precipitation OR forecast precipitation today (`pop > 0.3`, rain/snow, weather ID 200–699)
 - Smart caching: configurable interval (default 60 min) + Haversine location check (>5 km invalidates)
-
-### Astronomy (ipgeolocation.io)
-- Displays next sunrise/sunset time with sun icon
-- Displays next moonrise/moonset time with moon phase icon (8 phases, 0=new…7=waning crescent)
-- When all today's events have passed, fetches tomorrow's data (`&date=YYYY-MM-DD`)
-- Daily caching: only refetches after midnight
 
 ### Garbage bin schedule
 - Computed in `companion_app/app-side/index.js` → `computeGarbageBag()` → returns `'O'`/`'G'`/`'B'`/`null`
@@ -208,10 +194,9 @@ The watch side cannot use `@zos/utils` `messageBuilder`. Instead, `watchface/ind
 4. Phone responds with data; watch parses and calls `applyAll(msg.result)`
 
 The `fetchAll` response includes:
-- `glucose`: `{ value, delta, timeDelta, color, readingTime, trendArrow }` (readingTime = ms epoch for watch-side time delta; trendArrow = Unicode arrow string)
-- `weather`: `{ temperature, wind, needsUmbrella }`
-- `astronomy`: `{ sunTime, sunIsRising, moonTime, moonIsRising, moonPhase }`
-- `settings`: `{ garbageBag, showBgDelta, showTimeDelta }` (always present)
+- `glucose`: `{ value, trendArrow, color }` (trendArrow = Unicode arrow string)
+- `weather`: `{ temp, tempUnit, wind, windUnit, needsUmbrella }`
+- `settings`: `{ garbageBag }` (always present)
 - `weekday`: e.g. `'MON'`
 
 The watchface targets the companion's appId (1000090) because Zepp firmware does NOT
@@ -246,20 +231,13 @@ Same binary framing (16-byte outer + 66-byte inner). Side Service uses `@zeppos/
 ## Watchface constants to know
 
 ```js
-const MOON_IMGS = [           // index 0–7 maps moonPhase from astronomy API
-  'images/newmoon.png', 'images/waxingcrescentmoon.png',
-  'images/firstquartermoon.png', 'images/waxinggibbousmoon.png',
-  'images/fullmoon.png', 'images/waninggibbousmoon.png',
-  'images/thirdquartermoon.png', 'images/waningcrescentmoon.png',
-]
 const BAG_IMGS = {            // keyed by garbageBag value from app-side
   O: 'images/organicbag.png',
   G: 'images/greybag.png',
   B: 'images/blackbag.png',
 }
-const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']  // _time.week is 0=Sun
 
-const TREND_ARROWS = {        // Dexcom Trend field → Unicode arrow
+const TREND_ARROWS = {        // Dexcom Trend field → Unicode arrow (used in app-side)
   None: '→', DoubleUp: '↑↑', SingleUp: '↑', FortyFiveUp: '↗',
   Flat: '→', FortyFiveDown: '↘', SingleDown: '↓', DoubleDown: '↓↓',
   NotComputable: '?', RateOutOfRange: '⚠',

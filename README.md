@@ -149,6 +149,67 @@ zeus preview
 ```
 Scan the QR code with the Zepp App developer scanner.
 
+### Run in the Zepp OS Simulator
+
+The [Zepp OS Simulator](https://docs.zepp.com/docs/guides/tools/simulator/) is an
+Electron app with a QEMU-based device emulator. It allows previewing watchfaces and
+apps without a physical device.
+
+#### One-time setup (Linux)
+
+Install the required system libraries:
+
+```bash
+cd /opt/simulator/resources/firmware/ && sudo ./setup_for_linux.sh
+```
+
+Ensure the simulator directory has the correct permissions:
+
+```bash
+sudo chmod -R 777 /opt/simulator
+```
+
+#### Launch the simulator
+
+```bash
+cd /opt/simulator/ && ./simulator
+```
+
+This opens the simulator GUI. Inside it:
+
+1. **Download the Device Simulator** for GTS 4 Mini using the download manager
+   (top bar, button 7)
+2. **Select the GTS 4 Mini** model from the dropdown (top bar, button 6)
+3. **Click the "Device Simulator" open button** (top bar, button 2) to launch
+   the QEMU-based watch emulator window
+
+See the [official setup guide](https://docs.zepp.com/docs/guides/tools/simulator/setup/)
+for platform-specific instructions (Windows/macOS/Linux).
+
+#### Preview the watchface
+
+With the simulator running and the Device Simulator open, use `zeus dev`:
+
+```bash
+cd /path/to/rat_scout_AGTS4Mini
+zeus dev
+```
+
+`zeus dev` connects to the running simulator, compiles the project, pushes it to
+the emulated device, and watches for file changes with auto-refresh.
+
+> **Note:** `zeus dev` is for the simulator. `zeus preview` is for real devices
+> (generates a QR code). `zeus bridge` is for sideloading via the Zepp phone app.
+
+#### Simulator limitations
+
+- **BLE is not available** — the companion app's Side Service (Dexcom, weather,
+  astronomy) requires a real phone connection. Only locally-computed data (time,
+  date, battery, steps, ISO week) will render; glucose, weather, and astronomy
+  zones will show loading/default states.
+- **Sensor values can be mocked** in the simulator's Sensors panel (battery level,
+  step count, etc.).
+
 ---
 
 ## Configuration

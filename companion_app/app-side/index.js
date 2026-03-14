@@ -16,7 +16,6 @@
  * Data sources:
  *   - Dexcom Share (CGM glucose readings)
  *   - OpenWeatherMap (temperature, wind)
- *   - ipgeolocation.io (sunrise/sunset, moonrise/moonset, moon phase)
  *   - ip-api.com / ipapi.co (IP-based geolocation fallback)
  *   - Garbage bag schedule (computed from settings)
  *
@@ -36,19 +35,16 @@ const SETTINGS_KEYS = [
   'dexcom_password',
   'dexcom_region',
   'bg_units',
-  'bg_show_delta',
-  'bg_show_time_delta',
   'owm_api_key',
   'weather_units',
   'weather_interval',
-  'ipgeo_api_key',
   'garbage_organic',
   'garbage_grey',
   'garbage_black',
   'garbage_hour',
 ]
 
-const SELECT_FIELDS = new Set(['dexcom_region', 'bg_units', 'bg_show_delta', 'bg_show_time_delta', 'weather_units', 'weather_interval'])
+const SELECT_FIELDS = new Set(['dexcom_region', 'bg_units', 'weather_units', 'weather_interval'])
 
 function getAllSettings() {
   const result = {}
@@ -210,7 +206,7 @@ async function fetchGlucose() {
     const url = dexcomBase(region)
               + '/Publisher/ReadPublisherLatestGlucoseValues'
               + '?sessionId=' + encodeURIComponent(_dexSessionId)
-              + '&minutes=1440&maxCount=2'
+              + '&minutes=1440&maxCount=1'
 
     let resp = await _fetch({ url, method: 'GET' })
 
@@ -220,7 +216,7 @@ async function fetchGlucose() {
         url: dexcomBase(region)
            + '/Publisher/ReadPublisherLatestGlucoseValues'
            + '?sessionId=' + encodeURIComponent(_dexSessionId)
-           + '&minutes=1440&maxCount=2',
+           + '&minutes=1440&maxCount=1',
         method: 'GET',
       })
     }
@@ -231,41 +227,18 @@ async function fetchGlucose() {
     if (!readings || !readings.length) return null
 
     const latest = readings[0]
-    const prev   = readings[1]
     const raw    = latest.Value
-
-    let displayValue, deltaStr
-    if (units === 'mmol') {
-      displayValue = (raw / 18.0182).toFixed(1)
-      deltaStr     = prev
-        ? formatDelta(((raw - prev.Value) / 18.0182).toFixed(1))
-        : ''
-    } else {
-      const d  = prev ? raw - prev.Value : null
-      displayValue = '' + raw
-      deltaStr     = d !== null ? formatDelta(d) : ''
-    }
-
-    let timestamp = Date.now()
-    try {
-      const ms = parseInt(latest.WT.replace(/\/Date\((\d+)[^)]*\)\//, '$1'), 10)
-      if (!isNaN(ms)) timestamp = ms
-    } catch (e) {}
+    const displayValue = units === 'mmol'
+      ? (raw / 18.0182).toFixed(1)
+      : '' + raw
 
     const trendArrow = TREND_ARROWS[latest.Trend] || ''
 
-    return { value: displayValue, delta: deltaStr, timestamp, raw, trendArrow }
+    return { value: displayValue, raw, trendArrow }
   } catch (e) {
     clearDexSession()
     return null
   }
-}
-
-function formatDelta(d) {
-  const n = typeof d === 'string' ? parseFloat(d) : d
-  if (isNaN(n)) return ''
-  const sign = n > 0 ? '+' : ''
-  return sign + (Number.isInteger(n) ? n : n.toFixed(1))
 }
 
 function glucoseColor(rawMgdl) {
@@ -387,141 +360,6 @@ async function fetchWeather(lat, lon) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ipgeolocation.io Astronomy
-// ─────────────────────────────────────────────────────────────────────────────
-
-let _cachedAstronomy = null
-let _astronomyCacheDate = null
-
-async function fetchAstronomyForDate(apiKey, lat, lon, dateStr) {
-  let url = 'https://api.ipgeolocation.io/astronomy'
-          + '?apiKey=' + encodeURIComponent(apiKey)
-          + '&lat=' + lat + '&long=' + lon
-  if (dateStr) url += '&date=' + dateStr
-
-  const resp = await _fetch({ url, method: 'GET' })
-  if (!resp || resp.status !== 200) return null
-  return JSON.parse(await resp.text())
-}
-
-async function fetchAstronomy(lat, lon) {
-  const apiKey = getSetting('ipgeo_api_key', '')
-  if (!apiKey || lat == null || lon == null) return null
-
-  // Daily caching — astronomy data changes at most once a day
-  const todayStr = new Date().toDateString()
-  if (_cachedAstronomy && _astronomyCacheDate === todayStr) {
-    console.log('[RatScout] Using cached astronomy')
-    return _cachedAstronomy
-  }
-
-  try {
-    const data = await fetchAstronomyForDate(apiKey, lat, lon, null)
-    if (!data) return null
-
-    const nowStr   = new Date().toTimeString().slice(0, 5)
-    const sunrise  = data.sunrise  || 'N/A'
-    const sunset   = data.sunset   || 'N/A'
-    const moonrise = data.moonrise || 'N/A'
-    const moonset  = data.moonset  || 'N/A'
-
-    let sunTime, moonTime
-    let needTomorrowSun = false
-    let needTomorrowMoon = false
-
-    // Determine sun time
-    if (sunrise !== 'N/A' && sunset !== 'N/A') {
-      if (nowStr < sunrise) {
-        sunTime = sunrise  // next event: today's sunrise
-      } else if (nowStr < sunset) {
-        sunTime = sunset   // next event: today's sunset
-      } else {
-        needTomorrowSun = true  // all sun events passed
-        sunTime = sunset  // temporary, will be replaced
-      }
-    } else {
-      sunTime = sunrise !== 'N/A' ? sunrise : sunset
-    }
-
-    // Determine moon time
-    if (moonrise !== 'N/A' && moonset !== 'N/A') {
-      if (moonrise < moonset) {
-        if (nowStr < moonrise) {
-          moonTime = moonrise
-        } else if (nowStr < moonset) {
-          moonTime = moonset
-        } else {
-          needTomorrowMoon = true
-          moonTime = moonset
-        }
-      } else {
-        // moonrise > moonset (moonrise is in the evening)
-        if (nowStr < moonset) {
-          moonTime = moonset
-        } else if (nowStr < moonrise) {
-          moonTime = moonrise
-        } else {
-          needTomorrowMoon = true
-          moonTime = moonrise
-        }
-      }
-    } else {
-      moonTime = moonrise !== 'N/A' ? moonrise : moonset
-    }
-
-    // Fetch tomorrow's data if needed
-    if (needTomorrowSun || needTomorrowMoon) {
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      const tomorrowStr = tomorrow.getFullYear() + '-'
-                        + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-'
-                        + String(tomorrow.getDate()).padStart(2, '0')
-      try {
-        const tData = await fetchAstronomyForDate(apiKey, lat, lon, tomorrowStr)
-        if (tData) {
-          if (needTomorrowSun && tData.sunrise && tData.sunrise !== 'N/A') {
-            sunTime = tData.sunrise
-          }
-          if (needTomorrowMoon) {
-            if (tData.moonrise && tData.moonrise !== 'N/A') {
-              moonTime = tData.moonrise
-            } else if (tData.moonset && tData.moonset !== 'N/A') {
-              moonTime = tData.moonset
-            }
-          }
-        }
-      } catch (_e) {}
-    }
-
-    const result = {
-      sunTime,
-      moonTime,
-      moonPhase: parseMoonPhase((data.moon_phase || '').toLowerCase()),
-    }
-
-    _cachedAstronomy = result
-    _astronomyCacheDate = todayStr
-
-    return result
-  } catch (e) {
-    return null
-  }
-}
-
-function parseMoonPhase(str) {
-  var s = str.replace(/_/g, ' ')
-  if (s.includes('new'))             return 0
-  if (s.includes('waxing crescent')) return 1
-  if (s.includes('first quarter'))   return 2
-  if (s.includes('waxing gibbous'))  return 3
-  if (s.includes('full'))            return 4
-  if (s.includes('waning gibbous'))  return 5
-  if (s.includes('third quarter') || s.includes('last quarter')) return 6
-  if (s.includes('waning crescent')) return 7
-  return 0
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Garbage bin schedule
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -633,15 +471,10 @@ async function withRetry(fn, label, maxRetries, delayMs) {
 async function fetchAll() {
   const { lat, lon } = await ensureLocation()
 
-  const [glucose, weather, astronomy] = await Promise.all([
+  const [glucose, weather] = await Promise.all([
     withRetry(() => fetchGlucose(), 'glucose'),
     withRetry(() => fetchWeather(lat, lon), 'weather'),
-    withRetry(() => fetchAstronomy(lat, lon), 'astronomy'),
   ])
-
-  const timeDelta = (glucose && glucose.timestamp)
-    ? Math.round((Date.now() - glucose.timestamp) / 60000)
-    : null
 
   const bag = computeGarbageBag()
 
@@ -654,18 +487,12 @@ async function fetchAll() {
     weekday,
     glucose: glucose ? {
       value:      glucose.value,
-      delta:      glucose.delta,
-      timeDelta:  timeDelta !== null ? timeDelta + 'm' : '',
-      readingTime: glucose.timestamp,
       trendArrow: glucose.trendArrow || '',
       color:      glucoseColor(glucose.raw),
     } : null,
-    weather:   weather || null,
-    astronomy: astronomy || null,
-    settings:  {
+    weather:  weather || null,
+    settings: {
       garbageBag: bag || null,
-      showBgDelta: getSetting('bg_show_delta', 'true') !== 'false',
-      showTimeDelta: getSetting('bg_show_time_delta', 'true') !== 'false',
     },
   }
 }
@@ -703,7 +530,7 @@ AppSideService(BaseSideService({
         const settings = getAllSettings()
         // Never send credentials/API keys over BLE — the watch doesn't need them;
         // only the phone-side service uses them for API calls.
-        const SENSITIVE = ['dexcom_password', 'owm_api_key', 'ipgeo_api_key']
+        const SENSITIVE = ['dexcom_password', 'owm_api_key']
         for (const k of SENSITIVE) delete settings[k]
         const count = Object.keys(settings).length
         console.log('[RatScout] Sending ' + count + ' settings to watch (sensitive keys filtered)')
