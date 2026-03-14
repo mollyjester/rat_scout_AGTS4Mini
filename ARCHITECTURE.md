@@ -255,7 +255,7 @@ via the hmFS file written by the companion page.
 |---|---|---|---|
 | `dexcom_username` | TextInput | `''` | Dexcom Share login email/phone |
 | `dexcom_password` | TextInput | `''` | Dexcom Share password |
-| `dexcom_region` | Select | `'ous'` | Dexcom server: `'us'` or `'ous'` (outside US) |
+| `dexcom_region` | Select | `'ous'` | Dexcom server: `'us'`, `'ous'` (outside US), or `'jp'` (Japan) |
 | `bg_units` | Select | `'mgdl'` | Blood glucose units: `'mgdl'` or `'mmol'` |
 | `owm_api_key` | TextInput | `''` | OpenWeatherMap API key |
 | `weather_units` | Select | `'metric'` | Weather units: `'metric'` or `'imperial'` |
@@ -264,9 +264,21 @@ via the hmFS file written by the companion page.
 | `garbage_grey` | TextInput | `''` | Grey bag days CSV |
 | `garbage_black` | TextInput | `''` | Black bag days CSV |
 | `garbage_hour` | TextInput | `'9'` | Hour after which next-day bag shown |
+| `bg_show_delta` | Select | `'true'` | Show BG delta (difference between readings): `'true'` or `'false'` |
+| `bg_show_time_delta` | Select | `'true'` | Show time since last reading: `'true'` or `'false'` |
+| `weather_interval` | Select | `'60'` | Weather cache interval in minutes: `'30'`, `'60'`, `'120'`, `'180'` |
 
 **Latitude/longitude** are auto-detected from IP (ip-api.com / ipapi.co) by the
-watchface's Side Service — not stored in settings.
+companion Side Service — not stored in settings.
+
+### Internal Cache Keys
+
+The companion Side Service uses these private keys in `settingsStorage` for
+caching. They are **not** user-configurable and not sent over BLE:
+
+| Key | Purpose |
+|---|---|
+| `_dex_session` | Persisted Dexcom session/account IDs (survives Side Service restart) |
 
 ### Settings Normalisation
 
@@ -302,6 +314,11 @@ The watchface receives pre-computed display values; it does not perform any calc
 ### Glucose
 
 - **Source**: Dexcom Share API (`ReadPublisherLatestGlucoseValues`, `maxCount=2`)
+- **Regions**: US (`share2.dexcom.com`), OUS (`shareous1.dexcom.com`), Japan (`share.dexcom.jp`)
+  - Japan uses a different Application ID (`d8665ade-9673-4e27-9ff6-92db4ce13d13`)
+- **Session persistence**: Session ID and Account ID are cached in `settingsLib`
+  (`_dex_session` key) after successful login. On subsequent fetches, the cached
+  session is restored — avoiding redundant authentication. Cleared on auth failure.
 - **Conversion**: mg/dL → mmol/L uses factor `18.0182` (not 18.0), matching the
   standard medical conversion. E.g. `121 / 18.0182 = 6.715…` → display `"6.7"`.
 - **Color**: Determined by raw mg/dL value (before conversion to mmol):
@@ -310,17 +327,36 @@ The watchface receives pre-computed display values; it does not perform any calc
   - Red (`0xFF3030`): value < 70
   - Gray (`0x888888`): error / no data
 - **Delta**: Difference between latest two readings, displayed with ± prefix.
-- **Age**: Minutes since the latest reading timestamp.
+  Visibility controlled by `bg_show_delta` setting.
+- **Time delta (age)**: Minutes since the latest reading timestamp. Computed
+  **on the watch** using stored `_glucoseTimestamp` and `Date.now()`, so it
+  updates correctly on every screen-on (wrist raise) even after long screen-off
+  periods. Visibility controlled by `bg_show_time_delta` setting.
+- **Trend arrow**: Dexcom `Trend` field mapped to Unicode arrows
+  (`↑↑`, `↑`, `↗`, `→`, `↘`, `↓`, `↓↓`, `?`, `⚠`) and appended to the
+  glucose value display (e.g. `"142 ↗"`). Shown in the large glucose font
+  for high visibility of this critical medical data.
+- **Loading indicator**: A spinner is shown in the glucose zone during every
+  BLE fetch (not just initial load). Old glucose data is hidden while fetching
+  to avoid displaying potentially stale medical data.
 - **Credentials**: Dexcom username/password are read from `settingsStorage` and used
   only for the Dexcom Share API. They are **never** sent over BLE to the watch —
   only the computed glucose result is transmitted.
 
 ### Weather
 
-- **Source**: OpenWeatherMap Current Weather API
+- **Source**: OpenWeatherMap Current Weather API + 5-day/3-hour Forecast API
 - **Temperature**: Rounded to integer, with °C or °F suffix depending on `weather_units`.
 - **Wind**: Rounded to integer, m/s or mph.
-- **Umbrella**: `needsUmbrella` flag based on rain/thunderstorm weather condition ID.
+- **Umbrella**: `needsUmbrella` flag combines:
+  - Current conditions: weather ID 200–699 (rain, thunderstorm, drizzle, snow)
+  - Forecast: checks remaining today's 3-hour blocks for `pop > 0.3`,
+    `rain['3h'] > 0`, `snow['3h'] > 0`, or weather ID 200–699
+- **Smart caching**: Weather responses are cached in memory with configurable
+  interval (`weather_interval` setting, default 60 min). Cache is also
+  invalidated if the user's location has moved >5 km (Haversine distance check).
+  Cache is module-level (not persisted — weather is cheap to re-fetch after
+  Side Service restart).
 
 ### Astronomy
 
@@ -328,7 +364,22 @@ The watchface receives pre-computed display values; it does not perform any calc
 - **Location**: Auto-detected via ip-api.com (not configurable in settings).
 - **Sun/Moon time**: Next sunrise or sunset (whichever is upcoming), next
   moonrise or moonset. Displayed as HH:MM strings.
+- **Tomorrow's data**: When all of today's sun or moon events have passed
+  (e.g. after sunset), the Side Service fetches **tomorrow's** astronomy data
+  using the `&date=YYYY-MM-DD` API parameter. Shows tomorrow's sunrise/moonrise
+  instead of a past event.
 - **Moon phase**: Mapped from API phase name to index 0–7 (new→waning crescent).
+- **Daily caching**: Astronomy data is cached in memory per calendar day
+  (`_astronomyCacheDate`). A new API call is only made after midnight or on
+  first fetch of the day.
+
+### API Retry Logic
+
+All three external data fetches (`fetchGlucose`, `fetchWeather`, `fetchAstronomy`)
+are wrapped with `withRetry(fn, label, maxRetries=2, delayMs=2000)`. This retries
+on both thrown exceptions **and** `null` returns (since each fetch function catches
+errors internally and returns `null`). After exhausting retries, the function
+returns `null` and `fetchAll()` handles it gracefully (existing null-safe logic).
 
 ---
 
@@ -419,7 +470,7 @@ a Pebble watchface using C (watch side) and PebbleKit JS + Clay (phone side).
 |---|---|---|
 | `DEX_LOGIN` | `dexcom_username` | |
 | `DEX_PASSWORD` | `dexcom_password` | |
-| `DEX_REGION` | `dexcom_region` | Pebble has `'jp'` option too |
+| `DEX_REGION` | `dexcom_region` | Pebble has `'jp'`; now supported here too |
 | `BG_UNITS` | `bg_units` | Pebble uses `'mg/dL'`/`'mmol/L'`, we use `'mgdl'`/`'mmol'` |
 | `OWM_API_KEY` | `owm_api_key` | |
 | `WEATHER_UNITS` | `weather_units` | |
@@ -428,6 +479,9 @@ a Pebble watchface using C (watch side) and PebbleKit JS + Clay (phone side).
 | `GARBAGE_ORGANIC_DAYS` | `garbage_organic` | Pebble: bool array → bitmask; Zepp: CSV of day nums |
 | `GARBAGE_GREY_DAYS` | `garbage_grey` | |
 | `GARBAGE_BLACK_DAYS` | `garbage_black` | |
+| `BG_SHOW_DELTA` | `bg_show_delta` | Pebble: bool; Zepp: `'true'`/`'false'` |
+| `BG_SHOW_TIME_DELTA` | `bg_show_time_delta` | Pebble: bool; Zepp: `'true'`/`'false'` |
+| `WEATHER_INTERVAL` | `weather_interval` | Pebble: int (minutes); Zepp: string `'30'`/`'60'`/`'120'`/`'180'` |
 
 Pebble uses `navigator.geolocation` for coordinates. Zepp OS Side Service has no
 `navigator.geolocation`, and the Geolocation sensor requires API 2.1+ (GTS 4 Mini

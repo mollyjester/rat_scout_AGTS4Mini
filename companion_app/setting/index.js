@@ -138,6 +138,7 @@ AppSettingsPage({
           options: [
             { name: 'Outside US', value: 'ous' },
             { name: 'US', value: 'us' },
+            { name: 'Japan', value: 'jp' },
           ],
         }),
       ]),
@@ -151,8 +152,22 @@ AppSettingsPage({
             { name: 'mg/dL', value: 'mgdl' },
             { name: 'mmol/L', value: 'mmol' },
           ],
+        }),        Select({
+          label: 'Show BG Delta',
+          settingsKey: 'bg_show_delta',
+          options: [
+            { name: 'Yes', value: 'true' },
+            { name: 'No', value: 'false' },
+          ],
         }),
-      ]),
+        Select({
+          label: 'Show Time Since Reading',
+          settingsKey: 'bg_show_time_delta',
+          options: [
+            { name: 'Yes', value: 'true' },
+            { name: 'No', value: 'false' },
+          ],
+        }),      ]),
 
       // ── 3. Weather ──────────────────────────────────────────────────────
       Section({
@@ -172,8 +187,16 @@ AppSettingsPage({
             { name: 'Metric (°C, m/s)', value: 'metric' },
             { name: 'Imperial (°F, mph)', value: 'imperial' },
           ],
-        }),
-      ]),
+        }),        Select({
+          label: 'Update Interval',
+          settingsKey: 'weather_interval',
+          options: [
+            { name: '30 minutes', value: '30' },
+            { name: '1 hour', value: '60' },
+            { name: '2 hours', value: '120' },
+            { name: '3 hours', value: '180' },
+          ],
+        }),      ]),
 
       // ── 4. Astronomy ───────────────────────────────────────────────────
       Section({

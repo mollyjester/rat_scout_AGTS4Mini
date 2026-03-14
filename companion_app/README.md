@@ -1,8 +1,11 @@
 # Rat Scout Settings — Companion App
 
-A standalone Zepp OS mini-app (`appType: "app"`) that provides a settings UI for
-the **Rat Scout** watchface. Required because the Zepp phone app does not expose
-a settings page for `appType: "watchface"` — only for apps.
+A standalone Zepp OS mini-app (`appType: "app"`) that provides a settings UI and
+phone-side data fetching service for the **Rat Scout** watchface. Required because
+the Zepp phone app does not expose a settings page for `appType: "watchface"` — only
+for apps. The Side Service handles all external API calls (Dexcom Share, OpenWeatherMap,
+ipgeolocation.io) and responds to both the companion page (`getSettings`) and the
+watchface (`fetchAll`) via BLE.
 
 **Note:** Data fetching (Dexcom, weather, astronomy) is **not** this app's
 responsibility — that is handled by the watchface's own Side Service (appId 1000089).
@@ -18,8 +21,8 @@ This app only manages settings.
 │  │  Settings App UI  │ ◄─────────────────────► │ Side Service │ │
 │  │  setting/index.js │                         │ app-side/    │ │
 │  │  (AppSettingsPage)│                         │ index.js     │ │
-│  └──────────────────┘                         │ (settings    │ │
-│                                                │  only)       │ │
+│  └──────────────────┘                         │ (settings +  │ │
+│                                                │  data fetch) │ │
 │                                                └──────┬───────┘ │
 │                                                       │ BLE     │
 ├───────────────────────────────────────────────────────┼─────────┤
@@ -67,9 +70,11 @@ companion_app/
 │   └── index.js         Watch-side page (API 1.0 globals)
 │                         Manual hmBle binary framing + hmFS file write
 ├── app-side/
-│   └── index.js         Phone-side service (settings only)
+│   └── index.js         Phone-side service (settings + data fetching)
 │                         Uses @zeppos/zml BaseSideService + settingsLib
-│                         Handles getSettings requests (no data fetching)
+│                         Handles getSettings (companion page) and
+│                         fetchAll (watchface) requests
+│                         Fetches: Dexcom, OpenWeatherMap, ipgeolocation.io
 │                         AppSideService is a GLOBAL (not imported)
 ├── setting/
 │   └── index.js         Settings App UI
@@ -85,7 +90,7 @@ companion_app/
 |-----|-----------|-------------|---------|
 | `dexcom_username` | TextInput | Dexcom Share login | `user@email.com` |
 | `dexcom_password` | TextInput | Dexcom Share password | `secret123` |
-| `dexcom_region` | Select | `ous` (Outside US) or `us` | `ous` |
+| `dexcom_region` | Select | `ous` (Outside US), `us`, or `jp` (Japan) | `ous` |
 | `bg_units` | Select | `mgdl` or `mmol` | `mgdl` |
 | `owm_api_key` | TextInput | OpenWeatherMap API key | `abc123def456` |
 | `weather_units` | Select | `metric` or `imperial` | `metric` |
@@ -94,6 +99,9 @@ companion_app/
 | `garbage_organic` | TextInput | CSV of Mon-based day numbers | `0,2,4` |
 | `garbage_grey` | TextInput | CSV of Mon-based day numbers | `3` |
 | `garbage_black` | TextInput | CSV of Mon-based day numbers | `1,5` |
+| `bg_show_delta` | Select | Show BG delta: `true` or `false` | `true` |
+| `bg_show_time_delta` | Select | Show time since reading: `true` or `false` | `true` |
+| `weather_interval` | Select | Weather cache interval (minutes): `30`/`60`/`120`/`180` | `60` |
 
 ## How to Build & Install
 

@@ -145,7 +145,7 @@ companion_app/          — Settings companion (appId 1000090)
 |---|---|
 | `dexcom_username` | Dexcom Share login |
 | `dexcom_password` | Dexcom Share password |
-| `dexcom_region` | `us` or `ous` |
+| `dexcom_region` | `us`, `ous`, or `jp` |
 | `bg_units` | `mgdl` or `mmol` |
 | `owm_api_key` | OpenWeatherMap API key |
 | `weather_units` | `metric` or `imperial` |
@@ -154,6 +154,9 @@ companion_app/          — Settings companion (appId 1000090)
 | `garbage_grey` | CSV of day numbers |
 | `garbage_black` | CSV of day numbers |
 | `garbage_hour` | Hour after which next-day bag shown (default 9) |
+| `bg_show_delta` | Show BG delta: `true` or `false` (default `true`) |
+| `bg_show_time_delta` | Show time since reading: `true` or `false` (default `true`) |
+| `weather_interval` | Weather cache interval in minutes: `30`/`60`/`120`/`180` (default `60`) |
 
 Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 
@@ -162,20 +165,35 @@ Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 ## Features
 
 ### Glucose (Dexcom CGM)
-- Fetches from Dexcom Share API (US: `share2.dexcom.com`, OUS: `shareous1.dexcom.com`)
-- Displays value, delta (±), and age in minutes
+- Fetches from Dexcom Share API (US: `share2.dexcom.com`, OUS: `shareous1.dexcom.com`, JP: `share.dexcom.jp`)
+- Session persistence: session/account IDs cached in `settingsLib` (`_dex_session` key), restored on next fetch
+- Displays value + trend arrow (e.g. `"142 ↗"`), delta (±), and age in minutes
+- Trend arrows: `↑↑`, `↑`, `↗`, `→`, `↘`, `↓`, `↓↓`, `?`, `⚠` mapped from Dexcom `Trend` field
+- Time delta computed on watch from stored `_glucoseTimestamp` (updates on every screen-on)
+- BG delta and time delta visibility controlled by settings toggles
+- Loading spinner shown in glucose zone during every BLE fetch (hides old data)
 - Color: green (70–180 mg/dL), orange (>180), red (<70), gray (error)
 
 ### Weather (OpenWeatherMap)
+- Fetches current weather + 5-day/3h forecast
 - Displays temperature and wind speed
+- Umbrella flag: current precipitation OR forecast precipitation today (`pop > 0.3`, rain/snow, weather ID 200–699)
+- Smart caching: configurable interval (default 60 min) + Haversine location check (>5 km invalidates)
 
 ### Astronomy (ipgeolocation.io)
 - Displays next sunrise/sunset time with sun icon
 - Displays next moonrise/moonset time with moon phase icon (8 phases, 0=new…7=waning crescent)
+- When all today's events have passed, fetches tomorrow's data (`&date=YYYY-MM-DD`)
+- Daily caching: only refetches after midnight
 
 ### Garbage bin schedule
 - Computed in `companion_app/app-side/index.js` → `computeGarbageBag()` → returns `'O'`/`'G'`/`'B'`/`null`
 - Watch shows the corresponding bag icon in the status bar; hidden when no pickup
+
+### API retry logic
+- All external fetches wrapped with `withRetry(fn, label, maxRetries=2, delayMs=2000)`
+- Retries on both thrown exceptions and `null` returns
+- Failed-after-retries returns `null`; `fetchAll()` handles gracefully
 
 ---
 
@@ -188,6 +206,13 @@ The watch side cannot use `@zos/utils` `messageBuilder`. Instead, `watchface/ind
 2. Phone replies with shake response; watch learns `_blePort` from reply's `port2`
 3. Watch sends JSON request `{ action: 'fetchAll' }` wrapped in 16-byte outer + 66-byte inner header
 4. Phone responds with data; watch parses and calls `applyAll(msg.result)`
+
+The `fetchAll` response includes:
+- `glucose`: `{ value, delta, timeDelta, color, readingTime, trendArrow }` (readingTime = ms epoch for watch-side time delta; trendArrow = Unicode arrow string)
+- `weather`: `{ temperature, wind, needsUmbrella }`
+- `astronomy`: `{ sunTime, sunIsRising, moonTime, moonIsRising, moonPhase }`
+- `settings`: `{ garbageBag, showBgDelta, showTimeDelta }` (always present)
+- `weekday`: e.g. `'MON'`
 
 The watchface targets the companion's appId (1000090) because Zepp firmware does NOT
 register side services for `appType: "watchface"` packages (appId 1000089's side
@@ -233,6 +258,12 @@ const BAG_IMGS = {            // keyed by garbageBag value from app-side
   B: 'images/blackbag.png',
 }
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']  // _time.week is 0=Sun
+
+const TREND_ARROWS = {        // Dexcom Trend field → Unicode arrow
+  None: '→', DoubleUp: '↑↑', SingleUp: '↑', FortyFiveUp: '↗',
+  Flat: '→', FortyFiveDown: '↘', SingleDown: '↓', DoubleDown: '↓↓',
+  NotComputable: '?', RateOutOfRange: '⚠',
+}
 ```
 
 

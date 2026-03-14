@@ -61,6 +61,11 @@ let _time, _ped, _bat
 // ── State ─────────────────────────────────────────────────────────────────────
 let _lastHour = -1
 let _lastFetchTime = 0
+let _fetchInProgress = false
+let _glucoseTimestamp = 0
+let _lastTrendArrow = ''
+let _showBgDelta = true
+let _showTimeDelta = true
 
 
 
@@ -90,6 +95,26 @@ function mkw(type, params) {
 /** Safe setProperty — silently skips null widget refs */
 function setp(wref, key, val) {
   try { if (wref) wref.setProperty(key, val) } catch (e) {}
+}
+
+function showGlucoseLoading() {
+  _fetchInProgress = true
+  setp(R.glucoseLoading, hmUI.prop.VISIBLE, true)
+  setp(R.glucose,   hmUI.prop.TEXT, '')
+  setp(R.delta,     hmUI.prop.TEXT, '')
+  setp(R.timeDelta, hmUI.prop.TEXT, '')
+}
+
+function hideGlucoseLoading() {
+  _fetchInProgress = false
+  setp(R.glucoseLoading, hmUI.prop.VISIBLE, false)
+}
+
+function updateGlucoseTimeDelta() {
+  if (_fetchInProgress || _glucoseTimestamp <= 0) return
+  if (!_showTimeDelta) { setp(R.timeDelta, hmUI.prop.TEXT, ''); return }
+  var mins = Math.round((Date.now() - _glucoseTimestamp) / 60000)
+  setp(R.timeDelta, hmUI.prop.TEXT, mins + 'm')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,7 +171,7 @@ function buildGlucoseZone() {
     x: 0, y: 162, w: 200, h: 82,
     color: C_GREEN, text_size: FS_GLUC,
     align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
-    text: '---',
+    text: '',
   })
 
   R.delta = mkw(hmUI.widget.TEXT, {
@@ -162,6 +187,19 @@ function buildGlucoseZone() {
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '',
   })
+
+  // Loading indicator — try IMG_ANIM first, fall back to static IMG
+  R.glucoseLoading = mkw(hmUI.widget.IMG_ANIM, {
+    x: 80, y: 182, w: 32, h: 32,
+    anim_path: 'images', anim_prefix: 'loading', anim_ext: 'png',
+    anim_fps: 4, anim_size: 8, repeat_count: 0,
+    anim_status: hmUI.anim_status.START,
+  })
+  if (!R.glucoseLoading) {
+    R.glucoseLoading = mkw(hmUI.widget.IMG, {
+      x: 80, y: 182, w: 32, h: 32, src: 'images/loading_0.png',
+    })
+  }
 }
 
 function buildDateZone() {
@@ -291,10 +329,16 @@ function updateSteps() {
 function applyGlucose(msg) {
   if (!msg) return
   try {
-    setp(R.glucose,   hmUI.prop.TEXT, String(msg.value || '---'))
+    hideGlucoseLoading()
+    _glucoseTimestamp = msg.readingTime || 0
+    _lastTrendArrow = msg.trendArrow || ''
+    var displayVal = String(msg.value || '---')
+    if (_lastTrendArrow && displayVal !== '---') displayVal += ' ' + _lastTrendArrow
+    setp(R.glucose,   hmUI.prop.TEXT, displayVal)
     setp(R.glucose,   hmUI.prop.MORE, { color: msg.color || C_GRAY })
-    setp(R.delta,     hmUI.prop.TEXT, msg.delta     || '')
-    setp(R.timeDelta, hmUI.prop.TEXT, msg.timeDelta || '')
+    setp(R.delta,     hmUI.prop.TEXT, _showBgDelta ? (msg.delta || '') : '')
+    setp(R.timeDelta, hmUI.prop.TEXT, _showTimeDelta ? (msg.timeDelta || '') : '')
+    updateGlucoseTimeDelta()
   } catch (e) {}
 }
 
@@ -329,6 +373,8 @@ function applySettings(msg) {
     } else {
       setp(R.garbage, hmUI.prop.VISIBLE, false)
     }
+    if (msg.showBgDelta !== undefined) _showBgDelta = !!msg.showBgDelta
+    if (msg.showTimeDelta !== undefined) _showTimeDelta = !!msg.showTimeDelta
   } catch (e) {}
 }
 
@@ -336,6 +382,7 @@ function applyAll(msg) {
   if (!msg) return
   if (msg.weekday)   setp(R.weekday, hmUI.prop.TEXT, msg.weekday)
   if (msg.glucose)   applyGlucose(msg.glucose)
+  else               hideGlucoseLoading()   // fetch failed — let staleness show
   if (msg.weather)   applyWeather(msg.weather)
   if (msg.astronomy) applyAstronomy(msg.astronomy)
   if (msg.settings)  applySettings(msg.settings)
@@ -443,6 +490,7 @@ function _sendFetchAll() {
 // We use WIDGET_DELEGATE resume_call (fires on wrist-raise / screen-on)
 // combined with MINUTEEND for updates while the screen stays on.
 function _triggerPeriodicFetch() {
+  showGlucoseLoading()
   _lastFetchTime = Date.now()
   _bleConnected = false
   _blePort = 0
@@ -455,6 +503,7 @@ function _onResume() {
   // Screen just turned on — update display immediately
   try { updateTime()  } catch(e) {}
   try { updateSteps() } catch(e) {}
+  try { updateGlucoseTimeDelta() } catch(e) {}
   // Trigger fetch if enough time has passed (or if this is the first resume)
   if (_lastFetchTime === 0 || (Date.now() - _lastFetchTime) >= FETCH_INTERVAL_MIN * 60000) {
     _triggerPeriodicFetch()
@@ -464,6 +513,7 @@ function _onResume() {
 function _onMinuteTick() {
   updateTime()
   updateSteps()
+  try { updateGlucoseTimeDelta() } catch(e) {}
   if (_lastFetchTime > 0 && (Date.now() - _lastFetchTime) >= FETCH_INTERVAL_MIN * 60000) {
     _triggerPeriodicFetch()
   }

@@ -36,8 +36,11 @@ const SETTINGS_KEYS = [
   'dexcom_password',
   'dexcom_region',
   'bg_units',
+  'bg_show_delta',
+  'bg_show_time_delta',
   'owm_api_key',
   'weather_units',
+  'weather_interval',
   'ipgeo_api_key',
   'garbage_organic',
   'garbage_grey',
@@ -45,7 +48,7 @@ const SETTINGS_KEYS = [
   'garbage_hour',
 ]
 
-const SELECT_FIELDS = new Set(['dexcom_region', 'bg_units', 'weather_units'])
+const SELECT_FIELDS = new Set(['dexcom_region', 'bg_units', 'bg_show_delta', 'bg_show_time_delta', 'weather_units', 'weather_interval'])
 
 function getAllSettings() {
   const result = {}
@@ -87,15 +90,54 @@ function getSetting(key, fallback) {
 // Dexcom Share API
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEXCOM_APP_ID  = 'd89443d2-327c-4a6f-89e5-496bbb0317db'
-const DEXCOM_US_URL  = 'https://share2.dexcom.com/ShareWebServices/Services'
-const DEXCOM_OUS_URL = 'https://shareous1.dexcom.com/ShareWebServices/Services'
+const DEXCOM_APP_ID    = 'd89443d2-327c-4a6f-89e5-496bbb0317db'
+const DEXCOM_APP_ID_JP = 'd8665ade-9673-4e27-9ff6-92db4ce13d13'
+const DEXCOM_US_URL    = 'https://share2.dexcom.com/ShareWebServices/Services'
+const DEXCOM_OUS_URL   = 'https://shareous1.dexcom.com/ShareWebServices/Services'
+const DEXCOM_JP_URL    = 'https://share.dexcom.jp/ShareWebServices/Services'
+
+const TREND_ARROWS = {
+  'None': '\u2192', 'Flat': '\u2192',
+  'DoubleUp': '\u2191\u2191', 'SingleUp': '\u2191',
+  'FortyFiveUp': '\u2197', 'FortyFiveDown': '\u2198',
+  'SingleDown': '\u2193', 'DoubleDown': '\u2193\u2193',
+  'NotComputable': '?', 'RateOutOfRange': '\u26A0',
+}
 
 let _dexSessionId = null
 let _dexAccountId = null
 
 function dexcomBase(region) {
-  return region === 'ous' ? DEXCOM_OUS_URL : DEXCOM_US_URL
+  if (region === 'jp')  return DEXCOM_JP_URL
+  if (region === 'ous') return DEXCOM_OUS_URL
+  return DEXCOM_US_URL
+}
+
+function dexcomAppId(region) {
+  return region === 'jp' ? DEXCOM_APP_ID_JP : DEXCOM_APP_ID
+}
+
+function restoreDexSession() {
+  if (_dexSessionId) return
+  try {
+    const raw = settingsLib.getItem('_dex_session')
+    if (raw) {
+      const obj = JSON.parse(raw)
+      if (obj && obj.sid) { _dexSessionId = obj.sid; _dexAccountId = obj.aid || null }
+    }
+  } catch (_e) {}
+}
+
+function persistDexSession() {
+  try {
+    settingsLib.setItem('_dex_session', JSON.stringify({ sid: _dexSessionId, aid: _dexAccountId }))
+  } catch (_e) {}
+}
+
+function clearDexSession() {
+  _dexSessionId = null
+  _dexAccountId = null
+  try { settingsLib.setItem('_dex_session', '') } catch (_e) {}
 }
 
 async function dexcomAuthenticate(username, password, region) {
@@ -107,7 +149,7 @@ async function dexcomAuthenticate(username, password, region) {
     body: JSON.stringify({
       accountName:   username,
       password:      password,
-      applicationId: DEXCOM_APP_ID,
+      applicationId: dexcomAppId(region),
     }),
   })
   if (!resp || resp.status !== 200) throw new Error('Dexcom auth failed: ' + (resp && resp.status))
@@ -132,7 +174,7 @@ async function dexcomLogin(username, password, region) {
     body: JSON.stringify({
       accountId:     _dexAccountId,
       password:      password,
-      applicationId: DEXCOM_APP_ID,
+      applicationId: dexcomAppId(region),
     }),
   })
   if (!resp || resp.status !== 200) {
@@ -145,6 +187,8 @@ async function dexcomLogin(username, password, region) {
     _dexAccountId = null
     throw new Error('Dexcom login returned null session — check credentials')
   }
+  _dexSessionId = sid
+  persistDexSession()
   return sid
 }
 
@@ -155,6 +199,8 @@ async function fetchGlucose() {
   const units    = getSetting('bg_units', 'mgdl')
 
   if (!username || !password) return null
+
+  restoreDexSession()
 
   try {
     if (!_dexSessionId) {
@@ -206,10 +252,11 @@ async function fetchGlucose() {
       if (!isNaN(ms)) timestamp = ms
     } catch (e) {}
 
-    return { value: displayValue, delta: deltaStr, timestamp, raw }
+    const trendArrow = TREND_ARROWS[latest.Trend] || ''
+
+    return { value: displayValue, delta: deltaStr, timestamp, raw, trendArrow }
   } catch (e) {
-    _dexSessionId = null
-    _dexAccountId = null
+    clearDexSession()
     return null
   }
 }
@@ -232,9 +279,75 @@ function glucoseColor(rawMgdl) {
 // OpenWeatherMap
 // ─────────────────────────────────────────────────────────────────────────────
 
+let _cachedWeather = null
+let _weatherCacheTime = 0
+let _weatherCacheLat = null
+let _weatherCacheLon = null
+
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const toRad = v => v * Math.PI / 180
+  const R = 6371 // km
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2)
+          + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2))
+          * Math.sin(dLon/2) * Math.sin(dLon/2)
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function hasPrecipitation(weatherArr) {
+  if (!weatherArr) return false
+  for (let i = 0; i < weatherArr.length; i++) {
+    const id = weatherArr[i].id
+    if (id >= 200 && id < 700) return true
+  }
+  return false
+}
+
+async function checkForecastPrecipitation(apiKey, units, lat, lon) {
+  try {
+    const url = 'https://api.openweathermap.org/data/2.5/forecast'
+              + '?appid=' + encodeURIComponent(apiKey)
+              + '&units=' + units
+              + '&lat=' + lat + '&lon=' + lon
+    const resp = await _fetch({ url, method: 'GET' })
+    if (!resp || resp.status !== 200) return false
+
+    const data = JSON.parse(await resp.text())
+    if (!data.list) return false
+
+    // Check remaining forecast entries for today
+    const now = new Date()
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+    const endTs = Math.floor(endOfDay.getTime() / 1000)
+
+    for (let i = 0; i < data.list.length; i++) {
+      const item = data.list[i]
+      if (item.dt > endTs) break
+      if ((item.pop || 0) > 0.3) return true
+      if (item.rain && (item.rain['3h'] || item.rain['1h'])) return true
+      if (item.snow && (item.snow['3h'] || item.snow['1h'])) return true
+      if (hasPrecipitation(item.weather)) return true
+    }
+    return false
+  } catch (e) {
+    return false
+  }
+}
+
 async function fetchWeather(lat, lon) {
   const apiKey = getSetting('owm_api_key', '')
   if (!apiKey || lat == null || lon == null) return null
+
+  // Smart caching — return cached data if within interval and location unchanged
+  const intervalMs = parseInt(getSetting('weather_interval', '60'), 10) * 60000
+  const elapsed = Date.now() - _weatherCacheTime
+  if (_cachedWeather && elapsed < intervalMs) {
+    if (_weatherCacheLat != null && haversineDistance(lat, lon, _weatherCacheLat, _weatherCacheLon) < 5) {
+      console.log('[RatScout] Using cached weather (' + Math.round(elapsed/60000) + 'm old)')
+      return _cachedWeather
+    }
+  }
 
   const metric = getSetting('weather_units', 'metric') !== 'imperial'
   const units  = metric ? 'metric' : 'imperial'
@@ -249,15 +362,25 @@ async function fetchWeather(lat, lon) {
 
     const data = JSON.parse(await resp.text())
     const weatherId = data.weather && data.weather[0] ? data.weather[0].id : 800
-    const needsUmbrella = weatherId >= 200 && weatherId < 700
+    const currentPrecip = weatherId >= 200 && weatherId < 700
 
-    return {
+    // Check forecast for rest of day
+    const forecastPrecip = await checkForecastPrecipitation(apiKey, units, lat, lon)
+
+    const result = {
       temp:     Math.round(data.main.temp),
       tempUnit: metric ? '\u00b0C' : '\u00b0F',
       wind:     Math.round(data.wind.speed),
       windUnit: metric ? 'm/s' : 'mph',
-      needsUmbrella,
+      needsUmbrella: currentPrecip || forecastPrecip,
     }
+
+    _cachedWeather = result
+    _weatherCacheTime = Date.now()
+    _weatherCacheLat = lat
+    _weatherCacheLon = lon
+
+    return result
   } catch (e) {
     return null
   }
@@ -267,43 +390,119 @@ async function fetchWeather(lat, lon) {
 // ipgeolocation.io Astronomy
 // ─────────────────────────────────────────────────────────────────────────────
 
+let _cachedAstronomy = null
+let _astronomyCacheDate = null
+
+async function fetchAstronomyForDate(apiKey, lat, lon, dateStr) {
+  let url = 'https://api.ipgeolocation.io/astronomy'
+          + '?apiKey=' + encodeURIComponent(apiKey)
+          + '&lat=' + lat + '&long=' + lon
+  if (dateStr) url += '&date=' + dateStr
+
+  const resp = await _fetch({ url, method: 'GET' })
+  if (!resp || resp.status !== 200) return null
+  return JSON.parse(await resp.text())
+}
+
 async function fetchAstronomy(lat, lon) {
   const apiKey = getSetting('ipgeo_api_key', '')
   if (!apiKey || lat == null || lon == null) return null
 
-  const url = 'https://api.ipgeolocation.io/astronomy'
-            + '?apiKey=' + encodeURIComponent(apiKey)
-            + '&lat=' + lat + '&long=' + lon
+  // Daily caching — astronomy data changes at most once a day
+  const todayStr = new Date().toDateString()
+  if (_cachedAstronomy && _astronomyCacheDate === todayStr) {
+    console.log('[RatScout] Using cached astronomy')
+    return _cachedAstronomy
+  }
 
   try {
-    const resp = await _fetch({ url, method: 'GET' })
-    if (!resp || resp.status !== 200) return null
+    const data = await fetchAstronomyForDate(apiKey, lat, lon, null)
+    if (!data) return null
 
-    const data     = JSON.parse(await resp.text())
     const nowStr   = new Date().toTimeString().slice(0, 5)
     const sunrise  = data.sunrise  || 'N/A'
     const sunset   = data.sunset   || 'N/A'
     const moonrise = data.moonrise || 'N/A'
     const moonset  = data.moonset  || 'N/A'
 
-    const sunIsRising  = sunrise !== 'N/A' && sunset !== 'N/A' && nowStr < sunset
-    const sunTime      = sunIsRising ? sunrise : sunset
+    let sunTime, moonTime
+    let needTomorrowSun = false
+    let needTomorrowMoon = false
 
-    let moonIsRising = true
+    // Determine sun time
+    if (sunrise !== 'N/A' && sunset !== 'N/A') {
+      if (nowStr < sunrise) {
+        sunTime = sunrise  // next event: today's sunrise
+      } else if (nowStr < sunset) {
+        sunTime = sunset   // next event: today's sunset
+      } else {
+        needTomorrowSun = true  // all sun events passed
+        sunTime = sunset  // temporary, will be replaced
+      }
+    } else {
+      sunTime = sunrise !== 'N/A' ? sunrise : sunset
+    }
+
+    // Determine moon time
     if (moonrise !== 'N/A' && moonset !== 'N/A') {
       if (moonrise < moonset) {
-        moonIsRising = nowStr < moonrise
+        if (nowStr < moonrise) {
+          moonTime = moonrise
+        } else if (nowStr < moonset) {
+          moonTime = moonset
+        } else {
+          needTomorrowMoon = true
+          moonTime = moonset
+        }
       } else {
-        moonIsRising = nowStr > moonset || nowStr < moonrise
+        // moonrise > moonset (moonrise is in the evening)
+        if (nowStr < moonset) {
+          moonTime = moonset
+        } else if (nowStr < moonrise) {
+          moonTime = moonrise
+        } else {
+          needTomorrowMoon = true
+          moonTime = moonrise
+        }
       }
+    } else {
+      moonTime = moonrise !== 'N/A' ? moonrise : moonset
     }
-    const moonTime = moonIsRising ? moonrise : moonset
 
-    return {
+    // Fetch tomorrow's data if needed
+    if (needTomorrowSun || needTomorrowMoon) {
+      const tomorrow = new Date()
+      tomorrow.setDate(tomorrow.getDate() + 1)
+      const tomorrowStr = tomorrow.getFullYear() + '-'
+                        + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-'
+                        + String(tomorrow.getDate()).padStart(2, '0')
+      try {
+        const tData = await fetchAstronomyForDate(apiKey, lat, lon, tomorrowStr)
+        if (tData) {
+          if (needTomorrowSun && tData.sunrise && tData.sunrise !== 'N/A') {
+            sunTime = tData.sunrise
+          }
+          if (needTomorrowMoon) {
+            if (tData.moonrise && tData.moonrise !== 'N/A') {
+              moonTime = tData.moonrise
+            } else if (tData.moonset && tData.moonset !== 'N/A') {
+              moonTime = tData.moonset
+            }
+          }
+        }
+      } catch (_e) {}
+    }
+
+    const result = {
       sunTime,
       moonTime,
       moonPhase: parseMoonPhase((data.moon_phase || '').toLowerCase()),
     }
+
+    _cachedAstronomy = result
+    _astronomyCacheDate = todayStr
+
+    return result
   } catch (e) {
     return null
   }
@@ -403,6 +602,31 @@ async function ensureLocation() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Retry helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function withRetry(fn, label, maxRetries, delayMs) {
+  if (maxRetries === undefined) maxRetries = 2
+  if (delayMs === undefined) delayMs = 2000
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await fn()
+      if (result !== null) return result
+      if (attempt < maxRetries) {
+        console.log('[RatScout] ' + label + ' returned null, retrying (' + (attempt + 1) + '/' + maxRetries + ')')
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+    } catch (e) {
+      console.log('[RatScout] ' + label + ' attempt ' + (attempt + 1) + ' failed: ' + e.message)
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, delayMs))
+      }
+    }
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Master fetch — gather everything in parallel
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -410,9 +634,9 @@ async function fetchAll() {
   const { lat, lon } = await ensureLocation()
 
   const [glucose, weather, astronomy] = await Promise.all([
-    fetchGlucose(),
-    fetchWeather(lat, lon),
-    fetchAstronomy(lat, lon),
+    withRetry(() => fetchGlucose(), 'glucose'),
+    withRetry(() => fetchWeather(lat, lon), 'weather'),
+    withRetry(() => fetchAstronomy(lat, lon), 'astronomy'),
   ])
 
   const timeDelta = (glucose && glucose.timestamp)
@@ -429,14 +653,20 @@ async function fetchAll() {
     type: 'all',
     weekday,
     glucose: glucose ? {
-      value:     glucose.value,
-      delta:     glucose.delta,
-      timeDelta: timeDelta !== null ? timeDelta + 'm' : '',
-      color:     glucoseColor(glucose.raw),
+      value:      glucose.value,
+      delta:      glucose.delta,
+      timeDelta:  timeDelta !== null ? timeDelta + 'm' : '',
+      readingTime: glucose.timestamp,
+      trendArrow: glucose.trendArrow || '',
+      color:      glucoseColor(glucose.raw),
     } : null,
     weather:   weather || null,
     astronomy: astronomy || null,
-    settings:  bag ? { garbageBag: bag } : null,
+    settings:  {
+      garbageBag: bag || null,
+      showBgDelta: getSetting('bg_show_delta', 'true') !== 'false',
+      showTimeDelta: getSetting('bg_show_time_delta', 'true') !== 'false',
+    },
   }
 }
 
