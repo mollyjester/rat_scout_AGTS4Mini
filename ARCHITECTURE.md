@@ -28,10 +28,10 @@ This project consists of **two Zepp OS packages** that work together:
 Zepp OS does **not** expose a Settings page for `appType: "watchface"`. Only
 `appType: "app"` gets a settings gear icon in the Zepp phone app. To work around
 this, the project ships a **companion app** (appId 1000090) whose sole purpose is
-to provide a settings UI and relay configured values to the watchface (appId 1000089)
-via an hmFS file.
+to provide a settings UI. The watchface fetches all data (including settings-driven
+API results) from the companion's Side Service via BLE.
 
-**Data fetching** (Dexcom, weather, astronomy) is handled by the **companion app's
+**Data fetching** (Dexcom, weather, garbage) is handled by the **companion app's
 Side Service** (appId 1000090). Zepp OS firmware does **not** register/launch side
 services for `appType: "watchface"` packages — the phone framework's file lookup
 for the side service `app.json` fails with "file does not exist". Therefore the
@@ -53,7 +53,6 @@ which is properly registered because it has `appType: "app"`.
 │                                       │ fetch():                 │ │
 │                                       │  • Dexcom Share API      │ │
 │                                       │  • OpenWeatherMap API    │ │
-│                                       │  • ipgeolocation.io API  │ │
 │                                       │  • ip-api.com (geoloc)   │ │
 │                                       └────────────┬─────────────┘ │
 │                                                     │ BLE           │
@@ -76,11 +75,11 @@ which is properly registered because it has `appType: "app"`.
 ### End-to-End Settings Flow
 
 1. User opens **Zepp App → Profile → [watch] → App List → Rat Scout Settings → ⚙️**
-2. Configures Dexcom, weather, astronomy, garbage schedule in the Settings App UI
+2. Configures Dexcom, weather, garbage schedule in the Settings App UI
 3. Values stored in companion app's `settingsStorage` (phone-side k/v store)
 4. Watchface sends `{ action: 'fetchAll' }` via BLE to **companion** Side Service (appId 1000090)
 5. Companion Side Service reads settings directly from `settingsLib` / `settingsStorage`
-6. Companion Side Service uses those settings for all API calls (Dexcom, OWM, ipgeo, garbage)
+6. Companion Side Service uses those settings for all API calls (Dexcom, OWM, garbage)
 7. Companion Side Service responds with data; watchface renders it
 
 The watchface does **not** read or store settings — all settings live in the
@@ -142,8 +141,8 @@ setting/index.js        — Settings App stub (unreachable — Zepp App doesn't
 assets/gts4mini/
   icon.png              — App icon
   images/               — PNG icons (20 files):
-                          bg, garbage bags on/off (6), weather icons (3),
-                          umbrella on/off (2), loading frames (8), steps
+                          bg, garbage bags on/off (6), umbrella on/off (2),
+                          weather icons (2), loading frames (8), steps
 ```
 
 ### Companion App (`companion_app/` — appId 1000090)
@@ -161,9 +160,9 @@ companion_app/
 │                         Uses @zeppos/zml BaseSideService + settingsLib
 │                         Handles getSettings (companion page) and
 │                         fetchAll (watchface) requests
-│                         Computes: weekday, glucose color, timeDelta suffix,
-│                         garbage bag, weather, astronomy, glucose
-│                         Fetches: Dexcom, OpenWeatherMap, ipgeolocation.io
+│                         Computes: weekday, glucose color,
+│                         garbage bag, weather, glucose
+│                         Fetches: Dexcom, OpenWeatherMap
 │                         AppSideService is a GLOBAL (not imported)
 ├── setting/
 │   └── index.js        — Settings App UI
@@ -239,7 +238,7 @@ key-value store in the Zepp phone app. No BLE involved.
 
 The companion's Side Service uses `fetch()` (resolved via `require('@zos/app-side/network')`
 or `BaseSideService`'s `this.fetch`) to call external APIs: Dexcom, OpenWeatherMap,
-ipgeolocation.io, ip-api.com.
+ip-api.com.
 
 The watchface's own Side Service (`app-side/index.js`) is a **stub** — it never runs
 because Zepp firmware does not launch side services for watchface packages.
@@ -249,8 +248,8 @@ because Zepp firmware does not launch side services for watchface packages.
 ## Settings Keys
 
 All stored in the **companion app's** `settingsStorage` (Zepp phone app persistent
-storage). The watchface's own `settingsStorage` is empty — it receives settings
-via the hmFS file written by the companion page.
+storage). The watchface does not store settings — it receives pre-computed data
+via BLE `fetchAll` from the companion's Side Service.
 
 | Key | UI Component | Default | Description |
 |---|---|---|---|
@@ -260,14 +259,11 @@ via the hmFS file written by the companion page.
 | `bg_units` | Select | `'mgdl'` | Blood glucose units: `'mgdl'` or `'mmol'` |
 | `owm_api_key` | TextInput | `''` | OpenWeatherMap API key |
 | `weather_units` | Select | `'metric'` | Weather units: `'metric'` or `'imperial'` |
-| `ipgeo_api_key` | TextInput | `''` | ipgeolocation.io API key |
+| `weather_interval` | Select | `'60'` | Weather cache interval in minutes: `'30'`, `'60'`, `'120'`, `'180'` |
 | `garbage_organic` | TextInput | `''` | Organic bag days CSV (0=Mon…6=Sun) |
 | `garbage_grey` | TextInput | `''` | Grey bag days CSV |
 | `garbage_black` | TextInput | `''` | Black bag days CSV |
 | `garbage_hour` | TextInput | `'9'` | Hour after which next-day bag shown |
-| `bg_show_delta` | Select | `'true'` | Show BG delta (difference between readings): `'true'` or `'false'` |
-| `bg_show_time_delta` | Select | `'true'` | Show time since last reading: `'true'` or `'false'` |
-| `weather_interval` | Select | `'60'` | Weather cache interval in minutes: `'30'`, `'60'`, `'120'`, `'180'` |
 
 **Latitude/longitude** are auto-detected from IP (ip-api.com / ipapi.co) by the
 companion Side Service — not stored in settings.
@@ -296,13 +292,13 @@ The companion Side Service normalises `settingsStorage` values before sending:
 ## Watchface Layout (336×384 portrait)
 
 ```
-y=  0  h=42   Status bar: weekday | garbage bag icon | battery %  + graphical bar
-y= 44  h=116  Time (HH:MM, large font)
-y=162  h=82   Glucose zone: CGM value (left) | delta + age (right)
-y=246  h=54   Date zone: DD.MM (left) | Wnn ISO week (right)
-y=302  h=82   Bottom zone:
-               Left col (x=8..167):   sun icon + time / moon phase icon + time
-               Right col (x=168..335): temperature icon + value / wind icon + value / steps icon + count
+y=  0  h=42   Status bar: umbrella | 3 garbage bag icons (on/off) | weekday | battery bar
+y= 44  h=34   Date zone: DD.MM (left) | Wnn ISO week (right)
+y= 72  h=96   Time (HH:MM, 80pt gold #DDAA20, left-aligned x=15)
+y=170  h=44   Glucose zone: capsule background + centered value+trend text
+y=224  h=36   Temperature row: icon + value
+y=260  h=36   Wind row: icon + value
+y=296  h=36   Steps row: icon + count
 ```
 
 ---
@@ -314,7 +310,7 @@ The watchface receives pre-computed display values; it does not perform any calc
 
 ### Glucose
 
-- **Source**: Dexcom Share API (`ReadPublisherLatestGlucoseValues`, `maxCount=2`)
+- **Source**: Dexcom Share API (`ReadPublisherLatestGlucoseValues`, `maxCount=1`)
 - **Regions**: US (`share2.dexcom.com`), OUS (`shareous1.dexcom.com`), Japan (`share.dexcom.jp`)
   - Japan uses a different Application ID (`d8665ade-9673-4e27-9ff6-92db4ce13d13`)
 - **Session persistence**: Session ID and Account ID are cached in `settingsLib`
@@ -323,19 +319,12 @@ The watchface receives pre-computed display values; it does not perform any calc
 - **Conversion**: mg/dL → mmol/L uses factor `18.0182` (not 18.0), matching the
   standard medical conversion. E.g. `121 / 18.0182 = 6.715…` → display `"6.7"`.
 - **Color**: Determined by raw mg/dL value (before conversion to mmol):
-  - Green (`0x44F244`): 70 ≤ value ≤ 180
-  - Orange (`0xFF8C00`): value > 180
-  - Red (`0xFF3030`): value < 70
+  - Green (`0x44FF44`): 72 ≤ value ≤ 180
+  - Red (`0xFF5555`): value > 180 or value < 72
   - Gray (`0x888888`): error / no data
-- **Delta**: Difference between latest two readings, displayed with ± prefix.
-  Visibility controlled by `bg_show_delta` setting.
-- **Time delta (age)**: Minutes since the latest reading timestamp. Computed
-  **on the watch** using stored `_glucoseTimestamp` and `Date.now()`, so it
-  updates correctly on every screen-on (wrist raise) even after long screen-off
-  periods. Visibility controlled by `bg_show_time_delta` setting.
 - **Trend arrow**: Dexcom `Trend` field mapped to Unicode arrows
   (`↑↑`, `↑`, `↗`, `→`, `↘`, `↓`, `↓↓`, `?`, `⚠`) and appended to the
-  glucose value display (e.g. `"142 ↗"`). Shown in the large glucose font
+  glucose value display (e.g. `"142 ↗"`). Shown in the glucose capsule
   for high visibility of this critical medical data.
 - **Loading indicator**: A spinner is shown in the glucose zone during every
   BLE fetch (not just initial load). Old glucose data is hidden while fetching
@@ -359,24 +348,9 @@ The watchface receives pre-computed display values; it does not perform any calc
   Cache is module-level (not persisted — weather is cheap to re-fetch after
   Side Service restart).
 
-### Astronomy
-
-- **Source**: ipgeolocation.io Astronomy API
-- **Location**: Auto-detected via ip-api.com (not configurable in settings).
-- **Sun/Moon time**: Next sunrise or sunset (whichever is upcoming), next
-  moonrise or moonset. Displayed as HH:MM strings.
-- **Tomorrow's data**: When all of today's sun or moon events have passed
-  (e.g. after sunset), the Side Service fetches **tomorrow's** astronomy data
-  using the `&date=YYYY-MM-DD` API parameter. Shows tomorrow's sunrise/moonrise
-  instead of a past event.
-- **Moon phase**: Mapped from API phase name to index 0–7 (new→waning crescent).
-- **Daily caching**: Astronomy data is cached in memory per calendar day
-  (`_astronomyCacheDate`). A new API call is only made after midnight or on
-  first fetch of the day.
-
 ### API Retry Logic
 
-All three external data fetches (`fetchGlucose`, `fetchWeather`, `fetchAstronomy`)
+Both external data fetches (`fetchGlucose`, `fetchWeather`)
 are wrapped with `withRetry(fn, label, maxRetries=2, delayMs=2000)`. This retries
 on both thrown exceptions **and** `null` returns (since each fetch function catches
 errors internally and returns `null`). After exhausting retries, the function
@@ -475,13 +449,13 @@ a Pebble watchface using C (watch side) and PebbleKit JS + Clay (phone side).
 | `BG_UNITS` | `bg_units` | Pebble uses `'mg/dL'`/`'mmol/L'`, we use `'mgdl'`/`'mmol'` |
 | `OWM_API_KEY` | `owm_api_key` | |
 | `WEATHER_UNITS` | `weather_units` | |
-| `ASTRO_API_KEY` | `ipgeo_api_key` | |
+| `ASTRO_API_KEY` | *(not ported)* | Pebble used ipgeolocation.io for astronomy; not implemented in Zepp OS port |
 | `GARBAGE_PICKUP_TIME` | `garbage_hour` | |
 | `GARBAGE_ORGANIC_DAYS` | `garbage_organic` | Pebble: bool array → bitmask; Zepp: CSV of day nums |
 | `GARBAGE_GREY_DAYS` | `garbage_grey` | |
 | `GARBAGE_BLACK_DAYS` | `garbage_black` | |
-| `BG_SHOW_DELTA` | `bg_show_delta` | Pebble: bool; Zepp: `'true'`/`'false'` |
-| `BG_SHOW_TIME_DELTA` | `bg_show_time_delta` | Pebble: bool; Zepp: `'true'`/`'false'` |
+| `BG_SHOW_DELTA` | *(not ported)* | Pebble showed glucose delta; not implemented in Zepp OS port |
+| `BG_SHOW_TIME_DELTA` | *(not ported)* | Pebble showed time since reading; not implemented in Zepp OS port |
 | `WEATHER_INTERVAL` | `weather_interval` | Pebble: int (minutes); Zepp: string `'30'`/`'60'`/`'120'`/`'180'` |
 
 Pebble uses `navigator.geolocation` for coordinates. Zepp OS Side Service has no

@@ -3,13 +3,9 @@
 A standalone Zepp OS mini-app (`appType: "app"`) that provides a settings UI and
 phone-side data fetching service for the **Rat Scout** watchface. Required because
 the Zepp phone app does not expose a settings page for `appType: "watchface"` — only
-for apps. The Side Service handles all external API calls (Dexcom Share, OpenWeatherMap,
-ipgeolocation.io) and responds to both the companion page (`getSettings`) and the
+for apps. The Side Service handles all external API calls (Dexcom Share, OpenWeatherMap)
+and responds to both the companion page (`getSettings`) and the
 watchface (`fetchAll`) via BLE.
-
-**Note:** Data fetching (Dexcom, weather, astronomy) is **not** this app's
-responsibility — that is handled by the watchface's own Side Service (appId 1000089).
-This app only manages settings.
 
 ## Architecture
 
@@ -35,29 +31,27 @@ This app only manages settings.
 │  │  3. Writes rat_scout_settings.json to hmFS               │   │
 │  │  4. Attempts cross-app write to ../1000089/              │   │
 │  └──────────────────────────────────────────────────────────┘   │
-│                            │                                    │
-│                      hmFS file                                  │
-│                            ▼                                    │
+│                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Watchface  (../watchface/index.js — appId 1000089)      │   │
-│  │  Reads settings file on build()                          │   │
-│  │  Sends settings to own Side Service for API calls        │   │
+│  │  Sends fetchAll via BLE to companion Side Service (1000090)│  │
+│  │  Receives pre-computed display data; renders widgets      │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Data flow:**
 1. User opens **Zepp App → Profile → [watch] → App List → Rat Scout Settings → ⚙️**
-2. Configures Dexcom, weather, astronomy, garbage schedule
+2. Configures Dexcom, weather, garbage schedule
 3. Settings saved to companion app's `settingsStorage`
 4. User opens the **Rat Scout Settings** app on the watch
 5. App sends BLE shake + `{ action: 'getSettings' }` to Side Service
 6. Side Service reads `settingsStorage`, normalises values (unwraps JSON encoding)
 7. Responds with `{ settings: {...} }` (wrapped as `{ result: { settings: {...} } }` by ZML)
-8. Page writes `rat_scout_settings.json` to hmFS (own dir + cross-app `../1000089/`)
-9. User returns to the **Rat Scout** watchface
-10. Watchface reads settings file on `build()`, sends to own Side Service for API calls
-11. Side Service uses values as `_requestSettings` for all API calls
+8. Page writes `rat_scout_settings.json` to hmFS
+9. Watchface sends `{ action: 'fetchAll' }` via BLE to this Side Service (appId 1000090)
+10. Side Service reads settings from `settingsStorage` directly, fetches external APIs
+11. Side Service responds with pre-computed display data (glucose, weather, garbage, weekday)
 
 ## Project Structure
 
@@ -74,7 +68,7 @@ companion_app/
 │                         Uses @zeppos/zml BaseSideService + settingsLib
 │                         Handles getSettings (companion page) and
 │                         fetchAll (watchface) requests
-│                         Fetches: Dexcom, OpenWeatherMap, ipgeolocation.io
+│                         Fetches: Dexcom, OpenWeatherMap
 │                         AppSideService is a GLOBAL (not imported)
 ├── setting/
 │   └── index.js         Settings App UI
@@ -94,13 +88,11 @@ companion_app/
 | `bg_units` | Select | `mgdl` or `mmol` | `mgdl` |
 | `owm_api_key` | TextInput | OpenWeatherMap API key | `abc123def456` |
 | `weather_units` | Select | `metric` or `imperial` | `metric` |
-| `ipgeo_api_key` | TextInput | ipgeolocation.io API key | `xyz789` |
+| `weather_interval` | Select | Weather cache interval (minutes): `30`/`60`/`120`/`180` | `60` |
 | `garbage_hour` | TextInput | Hour after which next-day bag shows | `9` |
 | `garbage_organic` | TextInput | CSV of Mon-based day numbers | `0,2,4` |
 | `garbage_grey` | TextInput | CSV of Mon-based day numbers | `3` |
 | `garbage_black` | TextInput | CSV of Mon-based day numbers | `1,5` |
-| `bg_show_delta` | Select | Show BG delta: `true` or `false` | `true` |
-| `bg_show_time_delta` | Select | Show time since reading: `true` or `false` | `true` |
 | `weather_interval` | Select | Weather cache interval (minutes): `30`/`60`/`120`/`180` | `60` |
 
 ## How to Build & Install
@@ -217,14 +209,10 @@ Key offsets (from start of BLE packet):
 - `arr[82..]` — JSON payload start
 
 ### Cross-App File Access
-The companion app writes `rat_scout_settings.json` to **two** locations:
-1. Its own data directory (always succeeds)
-2. `../1000089/rat_scout_settings.json` — the watchface's data directory (may
-   succeed depending on firmware sandbox policy)
-
-The watchface tries to read from:
-1. Its own data directory (succeeds if cross-app write worked)
-2. `../1000090/rat_scout_settings.json` — the companion's directory (fallback)
+The companion app writes `rat_scout_settings.json` to its own data directory
+via `hmFS`. The watchface does **not** read this file — instead it sends
+`{ action: 'fetchAll' }` via BLE directly to this companion's Side Service,
+which reads settings from `settingsStorage` on the phone.
 
 ### Settings Normalisation
 The companion Side Service normalises `settingsStorage` values before sending:
@@ -235,8 +223,7 @@ The companion Side Service normalises `settingsStorage` values before sending:
 | Select | JSON object: `"{"name":"OUS","value":"ous"}"` | `"ous"` |
 | Plain text (garbage CSVs) | `"0,2,4"` | `"0,2,4"` |
 
-The watchface's Side Service receives clean key-value pairs and uses them
-directly via `_requestSettings`, falling back to defaults.
+The companion Side Service normalises raw `settingsStorage` values for API use.
 
 ## Troubleshooting
 
@@ -245,6 +232,6 @@ directly via `_requestSettings`, falling back to defaults.
 | Settings page not visible in Zepp App | Make sure you installed the **companion app** (appId 1000090), not just the watchface. Look in Profile → [watch] → App List. |
 | "Connecting to phone..." stays forever | Ensure phone is paired, BLE is active, and the Zepp App is open in foreground. |
 | "No settings configured yet" | You haven't configured settings yet. Follow the steps in "Configure settings on your phone" above. |
-| Watchface shows no data after sync | The watchface reads settings on `build()`. Try switching away from and back to the watchface to trigger a reload. |
+| Watchface shows no data after sync | The watchface fetches data via BLE every 5 minutes. Raise your wrist to trigger a refresh. |
 | Settings lost after watch reboot | Settings file persists in hmFS across reboots. If lost, just re-open the companion app to re-sync. |
 | Side Service crash in bridge logs | Check for `TypeError ... onInit` — likely an import issue. The Side Service must use `@zeppos/zml` pattern, not raw `@zos/app-side/settings` imports. |

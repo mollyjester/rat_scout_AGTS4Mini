@@ -82,12 +82,13 @@ hmUI.createWidget(hmUI.widget.WIDGET_DELEGATE, {
 ## Layout (336×384 portrait, 80px corner rounding)
 
 ```
-y=  0  h=42   Status bar: garbage bag icon | weekday | battery % + bar  (x≥80 for rounding)
-y= 44  h=34   Date zone: DD.MM (left) | Wnn ISO week (right)  (above time)
-y= 78  h=116  Time (HH:MM, 100pt, color #343e9f, left-aligned x=80)
-y=196  h=60   Glucose zone: CGM value + trend arrow (centered)
-y=260  h=42   Weather row: temperature icon+value | wind icon+value
-y=306  h=38   Steps row: steps icon + count
+y=  0  h=42   Status bar: umbrella | 3 garbage bags (on/off) | weekday | battery bar
+y= 44  h=34   Date zone: DD.MM (left) | Wnn ISO week (right)
+y= 72  h=96   Time (HH:MM, 80pt, color #DDAA20 gold, left-aligned x=15)
+y=170  h=44   Glucose zone: capsule bg + centered value+trend
+y=224  h=36   Temperature row: icon + value
+y=260  h=36   Wind row: icon + value
+y=296  h=36   Steps row: icon + count
 ```
 
 ---
@@ -113,10 +114,12 @@ package.json            — NPM deps: @zeppos/zml ^0.0.9
 ARCHITECTURE.md         — Detailed architecture reference
 assets/gts4mini/
   icon.png              — App icon
-  images/               — PNG icons
-    Bags: organicbag, greybag, blackbag
-    Weather: umbrella, temperature, wind
-    Other: steps, loading_0–7, bg
+  images/               — PNG icons (20 files)
+    Bags on/off: organic_32, greybag_32, blackbag_32 (6)
+    Umbrella on/off: umbrella_32 (2)
+    Weather: temperature_24, windmill_24 (2)
+    Loading frames: loading_0–7 (8)
+    Other: steps_24, bg
 
 companion_app/          — Settings companion (appId 1000090)
   app.json              — Manifest (appType "app")
@@ -152,7 +155,7 @@ companion_app/          — Settings companion (appId 1000090)
 | `garbage_black` | CSV of day numbers |
 | `garbage_hour` | Hour after which next-day bag shown (default 9) |
 
-Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
+Latitude/longitude auto-detected from IP (ip-api.com / ipapi.co) — not in settings.
 
 ---
 
@@ -164,7 +167,7 @@ Latitude/longitude auto-detected from IP (ip-api.com) — not in settings.
 - Displays value + trend arrow (e.g. `"142 ↗"`), centered below time
 - Trend arrows: `↑↑`, `↑`, `↗`, `→`, `↘`, `↓`, `↓↓`, `?`, `⚠` mapped from Dexcom `Trend` field
 - Loading spinner shown in glucose zone during every BLE fetch (hides old data)
-- Color: green (70–180 mg/dL), orange (>180), red (<70), gray (error)
+- Color: green (72–180 mg/dL), red (>180 or <72), gray (error)
 
 ### Weather (OpenWeatherMap)
 - Fetches current weather + 5-day/3h forecast
@@ -196,7 +199,7 @@ The watch side cannot use `@zos/utils` `messageBuilder`. Instead, `watchface/ind
 The `fetchAll` response includes:
 - `glucose`: `{ value, trendArrow, color }` (trendArrow = Unicode arrow string)
 - `weather`: `{ temp, tempUnit, wind, windUnit, needsUmbrella }`
-- `settings`: `{ garbageBag }` (always present)
+- `settings`: `{ garbage: { organic, grey, black } }` (booleans)
 - `weekday`: e.g. `'MON'`
 
 The watchface targets the companion's appId (1000090) because Zepp firmware does NOT
@@ -231,10 +234,13 @@ Same binary framing (16-byte outer + 66-byte inner). Side Service uses `@zeppos/
 ## Watchface constants to know
 
 ```js
-const BAG_IMGS = {            // keyed by garbageBag value from app-side
-  O: 'images/organicbag.png',
-  G: 'images/greybag.png',
-  B: 'images/blackbag.png',
+const BAG_IMGS = {            // garbage bag on/off images
+  organic_on:  'images/organic_32_on.png',
+  organic_off: 'images/organic_32_off.png',
+  grey_on:     'images/greybag_32_on.png',
+  grey_off:    'images/greybag_32_off.png',
+  black_on:    'images/blackbag_32_on.png',
+  black_off:   'images/blackbag_32_off.png',
 }
 
 const TREND_ARROWS = {        // Dexcom Trend field → Unicode arrow (used in app-side)

@@ -8,18 +8,15 @@ A reimplementation of the [Pebble Rat Scout watchface](https://github.com/mollyj
 
 ```
 ┌──────────────────────────────────────┐
-│ WED      [bag]   ████████ 87%        │  ← Status bar: weekday + bag + battery
-│                                      │
-│              13:42                   │  ← Large time (HH:MM)
-│                                      │
-│   142         +4                     │  ← Glucose (mg/dL) + delta
-│               3m                     │  ← Minutes since last CGM reading
-├──────────────────────────────────────┤
-│   21.02       W08                    │  ← Date + ISO week number
-├──────────────────────────────────────┤
-│ ↑☀  07:14   🌡 -2°                   │  ← Sunrise + Temperature
-│ 🌔  22:33   💨 12                    │  ← Moonrise/phase + Wind
-│              👟 8.3k                  │  ← Steps
+│ ☂ [O][G][B]  WED  ████             │  ← Status bar: umbrella + bags + weekday + battery bar
+│  21.02       W08                    │  ← Date (DD.MM) + ISO week
+│  13:42                              │  ← Large time (HH:MM, gold)
+│  ┌─────────────────┐                │
+│  │   142 ↗         │                │  ← Glucose + trend (capsule)
+│  └─────────────────┘                │
+│  🌡 -2°C                             │  ← Temperature
+│  💨 12 m/s                           │  ← Wind speed
+│  👟 8.3k                             │  ← Steps
 └──────────────────────────────────────┘
 ```
 
@@ -27,21 +24,17 @@ A reimplementation of the [Pebble Rat Scout watchface](https://github.com/mollyj
 
 | Field | Source |
 |-------|--------|
-| Time (HH:MM, 24-hour) | `hmSensor` TIME |
-| Weekday (MON/TUE…) | `hmSensor` TIME |
-| Date (DD.MM) | `hmSensor` TIME |
-| ISO week number (W##) | `hmSensor` TIME |
-| Battery % + colour bar | `hmSensor` BATTERY |
-| Step count | `hmSensor` STEP |
-| Glucose reading | Dexcom Share API (via app-side) |
-| Glucose delta (±) | Dexcom Share API (via app-side) |
-| Minutes since reading | Dexcom Share API (via app-side) |
-| Sunrise / sunset | ipgeolocation.io (via app-side) |
-| Moonrise / moonset | ipgeolocation.io (via app-side) |
-| Moon phase icon | ipgeolocation.io (via app-side) |
-| Temperature | OpenWeatherMap (via app-side) |
-| Wind speed | OpenWeatherMap (via app-side) |
-| Garbage bag icon | Computed from schedule (via app-side) |
+| Time (HH:MM, 24-hour) | `hmSensor` TIME (on watch) |
+| Weekday (MON/TUE…) | Computed in companion Side Service |
+| Date (DD.MM) | `hmSensor` TIME (on watch) |
+| ISO week number (W##) | `hmSensor` TIME (on watch) |
+| Battery bar | `hmSensor` BATTERY (on watch) |
+| Step count | `hmSensor` STEP (on watch) |
+| Glucose + trend arrow | Dexcom Share API (via companion Side Service) |
+| Temperature | OpenWeatherMap (via companion Side Service) |
+| Wind speed | OpenWeatherMap (via companion Side Service) |
+| Umbrella indicator | OWM current + forecast (via companion Side Service) |
+| Garbage bag icons | Computed from schedule (via companion Side Service) |
 
 ---
 
@@ -50,9 +43,7 @@ A reimplementation of the [Pebble Rat Scout watchface](https://github.com/mollyj
 - **Amazfit GTS 4 Mini** running Zepp OS
 - **Zepp app** on your phone (Android or iOS)
 - A **Dexcom Share** account (optional — watchface still works without it)
-- Optional API keys:
-  - [OpenWeatherMap](https://openweathermap.org/api) (free tier is sufficient)
-  - [ipgeolocation.io](https://ipgeolocation.io/) (free tier is sufficient)
+- Optional: [OpenWeatherMap API key](https://openweathermap.org/api) (free tier is sufficient)
 
 ---
 
@@ -66,7 +57,7 @@ This project consists of **two Zepp OS packages**:
 ├── app.js
 ├── package.json               ← @zeppos/zml dependency
 ├── watchface/index.js         ← Watch UI (API 1.0 globals)
-├── app-side/index.js          ← Phone service: data fetching (Dexcom, weather, etc.)
+├── app-side/index.js          ← Phone service (STUB — never runs for watchfaces)
 ├── setting/index.js           ← (stub — watchfaces can't show settings)
 ├── assets/gts4mini/images/    ← 20 PNG icons
 ├── ARCHITECTURE.md            ← Detailed architecture docs
@@ -76,14 +67,14 @@ This project consists of **two Zepp OS packages**:
     ├── app.js
     ├── package.json           ← @zeppos/zml dependency
     ├── page/index.js          ← Watch page: BLE + hmFS
-    ├── app-side/index.js      ← Phone service: settings relay only
+    ├── app-side/index.js      ← Phone service: settings + data fetching (Dexcom, weather)
     ├── setting/index.js       ← Settings UI
     └── assets/gts4mini/icon.png
 ```
 
 **Why two packages?** The Zepp phone app does not expose a settings page for
 `appType: "watchface"`. The companion app (`appType: "app"`) provides the settings
-UI, and its Side Service handles all external API calls (Dexcom, weather, astronomy).
+UI, and its Side Service handles all external API calls (Dexcom, weather, garbage).
 The watchface sends `fetchAll` requests via BLE to the companion's Side Service
 (appId 1000090), which reads settings directly from `settingsStorage`.
 
@@ -204,8 +195,8 @@ the emulated device, and watches for file changes with auto-refresh.
 #### Simulator limitations
 
 - **BLE is not available** — the companion app's Side Service (Dexcom, weather,
-  astronomy) requires a real phone connection. Only locally-computed data (time,
-  date, battery, steps, ISO week) will render; glucose, weather, and astronomy
+  garbage) requires a real phone connection. Only locally-computed data (time,
+  date, battery, steps, ISO week) will render; glucose, weather, and garbage
   zones will show loading/default states.
 - **Sensor values can be mocked** in the simulator's Sensors panel (battery level,
   step count, etc.).
@@ -246,7 +237,7 @@ After changing any setting in the Zepp App:
 | `bg_units` | `mgdl` or `mmol` |
 | `owm_api_key` | OpenWeatherMap API key |
 | `weather_units` | `metric` (°C, m/s) or `imperial` (°F, mph) |
-| `ipgeo_api_key` | ipgeolocation.io API key |
+| `weather_interval` | Weather cache interval in minutes: `30`/`60`/`120`/`180` (default `60`) |
 | `garbage_organic` | Organic bin days — CSV of 0=Mon…6=Sun (e.g. `0,2,4`) |
 | `garbage_grey` | Grey bin days |
 | `garbage_black` | Black bin days |
@@ -269,10 +260,9 @@ A black AMOLED background is used for power efficiency.
 
 | Colour | Meaning |
 |--------|---------|
-| 🟢 Green | In range (70–180 mg/dL) |
-| 🟠 Orange | High (> 180 mg/dL) |
-| 🔴 Red | Low (< 70 mg/dL) |
-| ⬜ Grey | No data / stale |
+| 🟢 Green | In range (72–180 mg/dL) |
+| 🔴 Red | Out of range (> 180 or < 72 mg/dL) |
+| ⬜ Grey | No data / error |
 
 ### Battery bar colour coding
 
