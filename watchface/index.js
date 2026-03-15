@@ -31,9 +31,9 @@ var C_BAR    = 0x141414
 var C_TIME   = 0x343e9f
 
 // ── Font sizes ────────────────────────────────────────────────────────────────
-var FS_TIME  = 80
-var FS_GLUC  = 48
-var FS_DATE  = 34
+var FS_TIME  = 70
+var FS_GLUC  = 40
+var FS_DATE  = 28
 var FS_SMALL = 20
 
 // ── Garbage bag images (on/off variants) ─────────────────────────────────────
@@ -134,7 +134,7 @@ function buildDateZone() {
 
 function buildTimeZone() {
   R.time = mkw(hmUI.widget.TEXT, {
-    x: 15, y: 78, w: W - 15, h: 90,
+    x: 15, y: 70, w: W - 15, h: 90,
     color: C_TIME, text_size: FS_TIME,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--:--',
@@ -143,7 +143,7 @@ function buildTimeZone() {
 
 function buildGlucoseZone() {
   R.glucose = mkw(hmUI.widget.TEXT, {
-    x: 15, y: 170, w: Math.floor(W / 2), h: 50,
+    x: 15, y: 160, w: Math.floor(W / 2), h: 50,
     color: C_GREEN, text_size: FS_GLUC,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '',
