@@ -165,18 +165,18 @@ function buildGlucoseZone() {
 
 function buildWeatherRow() {
   // Temperature (y=224)
-  mkw(hmUI.widget.IMG, { x: 15, y: 226, w: 22, h: 32, src: 'images/temperature.png' })
+  mkw(hmUI.widget.IMG, { x: 15, y: 230, w: 24, h: 24, src: 'images/temperature_24.png' })
   R.temp = mkw(hmUI.widget.TEXT, {
-    x: 39, y: 224, w: 80, h: 36,
+    x: 41, y: 224, w: 80, h: 36,
     color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--',
   })
 
   // Wind (y=260)
-  mkw(hmUI.widget.IMG, { x: 15, y: 262, w: 22, h: 32, src: 'images/wind.png' })
+  mkw(hmUI.widget.IMG, { x: 15, y: 266, w: 24, h: 24, src: 'images/windmill_24.png' })
   R.wind = mkw(hmUI.widget.TEXT, {
-    x: 39, y: 260, w: 80, h: 36,
+    x: 41, y: 260, w: 80, h: 36,
     color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--',
@@ -185,9 +185,9 @@ function buildWeatherRow() {
 
 function buildStepsRow() {
   // Steps (y=296)
-  mkw(hmUI.widget.IMG, { x: 15, y: 298, w: 20, h: 32, src: 'images/steps.png' })
+  mkw(hmUI.widget.IMG, { x: 15, y: 302, w: 24, h: 24, src: 'images/steps_24.png' })
   R.steps = mkw(hmUI.widget.TEXT, {
-    x: 39, y: 296, w: 132, h: 36,
+    x: 41, y: 296, w: 132, h: 36,
     color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '0',
