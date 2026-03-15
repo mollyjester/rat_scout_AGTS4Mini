@@ -214,18 +214,14 @@ Zepp OS does **not** show settings for watchfaces. Instead, use the **Rat Scout 
    - Open Zepp App → **Profile → [your watch] → App List**
    - Find **"Rat Scout Settings"** → tap the **⚙️ Settings gear**
    - Fill in your Dexcom credentials, API keys, garbage schedule
-3. **Sync settings to the watch:**
-   - Open **"Rat Scout Settings"** on the watch (from the app list)
-   - Wait for "Settings saved! (N keys)" message
-   - Press back to return to the watchface
-4. **The watchface now uses your settings.** They persist across reboots.
+3. **The watchface reads settings automatically.** Raise your wrist to trigger
+   a data refresh — the watchface sends `fetchAll` to the companion’s Side
+   Service, which reads settings from `settingsStorage` directly.
 
 ### Updating settings
 
-After changing any setting in the Zepp App:
-1. Open the Rat Scout Settings app on the watch
-2. Wait for sync confirmation
-3. Return to the watchface (settings are read on every watchface init)
+After changing any setting in the Zepp App, simply raise your wrist. The
+watchface will pick up the new settings on the next periodic fetch (every 5 min).
 
 ### Settings reference
 
@@ -284,10 +280,8 @@ pickup based on the configured schedule and cutoff hour.
 | Problem | Solution |
 |---------|----------|
 | No settings gear visible in Zepp App | Install the **companion app** (not just the watchface). Look in Profile → [watch] → App List for "Rat Scout Settings". |
-| Watch app stuck on "Connecting..." | Ensure phone is paired, BLE active, Zepp App in foreground. |
-| "No settings configured yet" | Go to Zepp App and configure settings first (see Configuration above). |
-| Watchface shows `--` for all data | Open the companion app on watch to sync settings, then reload the watchface. |
-| Settings lost after watch reboot | Settings persist in hmFS. If lost, re-open the companion app to re-sync. |
+| Watchface shows `--` for all data | Ensure the companion app is installed and settings are configured in the Zepp phone app. Raise your wrist to trigger a refresh. |
+| Glucose shows `---` | Dexcom credentials may be wrong, the sensor is off, or the last reading is older than 10 minutes. |
 
 ---
 

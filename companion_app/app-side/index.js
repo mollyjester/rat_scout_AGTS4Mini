@@ -228,13 +228,21 @@ async function fetchGlucose() {
 
     const latest = readings[0]
     const raw    = latest.Value
+
+    // Parse reading age from Dexcom WT timestamp (.NET JSON date "/Date(epochMs)/")
+    let ageMs = 0
+    const wtMatch = (latest.WT || latest.ST || '').match(/Date\((\d+)/)
+    if (wtMatch) {
+      ageMs = Date.now() - parseInt(wtMatch[1], 10)
+    }
+
     const displayValue = units === 'mmol'
       ? (raw / 18.0182).toFixed(1)
       : '' + raw
 
     const trendArrow = TREND_ARROWS[latest.Trend] || ''
 
-    return { value: displayValue, raw, trendArrow }
+    return { value: displayValue, raw, trendArrow, ageMs }
   } catch (e) {
     clearDexSession()
     return null
@@ -483,14 +491,24 @@ async function fetchAll() {
   const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
   const weekday  = WEEKDAYS[new Date().getDay()] || '---'
 
+  // Glucose staleness: >10 min → show "---", >5 min → gray color
+  let glucoseResult = null
+  if (glucose) {
+    if (glucose.ageMs > 10 * 60 * 1000) {
+      glucoseResult = { value: '---', trendArrow: '', color: 0x888888 }
+    } else {
+      glucoseResult = {
+        value:      glucose.value,
+        trendArrow: glucose.trendArrow || '',
+        color:      glucose.ageMs > 5 * 60 * 1000 ? 0x888888 : glucoseColor(glucose.raw),
+      }
+    }
+  }
+
   return {
     type: 'all',
     weekday,
-    glucose: glucose ? {
-      value:      glucose.value,
-      trendArrow: glucose.trendArrow || '',
-      color:      glucoseColor(glucose.raw),
-    } : null,
+    glucose: glucoseResult,
     weather:  weather || null,
     settings: {
       garbage: bags,

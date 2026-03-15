@@ -154,12 +154,11 @@ companion_app/
 ├── package.json        — NPM deps: @zeppos/zml ^0.0.9
 ├── page/
 │   └── index.js        — Watch-side page (API 1.0 globals)
-│                         Manual hmBle framing, hmFS write
+│                         Stub — displays informational message only
 ├── app-side/
 │   └── index.js        — Phone-side service (settings + data fetching)
 │                         Uses @zeppos/zml BaseSideService + settingsLib
-│                         Handles getSettings (companion page) and
-│                         fetchAll (watchface) requests
+│                         Handles fetchAll (watchface) requests
 │                         Computes: weekday, glucose color,
 │                         garbage bag, weather, glucose
 │                         Fetches: Dexcom, OpenWeatherMap
@@ -192,15 +191,16 @@ the MessageBuilder binary protocol:
 The watchface uses the **companion appId** (1000090) for BLE routing because
 Zepp firmware does not register side services for `appType: "watchface"` packages.
 The companion's Side Service uses `@zeppos/zml` `BaseSideService` and dispatches
-incoming requests to `onRequest(req, res)`, handling both `getSettings` (from the
-companion page) and `fetchAll` (from the watchface).
+incoming requests to `onRequest(req, res)`, handling `fetchAll` from the watchface.
 
 ### Companion Page ↔ Companion Side Service (BLE)
 
-The companion's `page/index.js` uses the **same** MessageBuilder-compatible binary
-framing (16-byte outer + 66-byte inner header). The companion Side Service uses
-`@zeppos/zml` `BaseSideService`, which internally calls `messaging.peerSocket`
-(the phone-side BLE transport).
+The companion's `page/index.js` is a **stub** — it displays an informational
+message and does not initiate BLE communication. Settings are configured
+entirely through the Zepp phone app and read by the Side Service directly
+from `settingsStorage`.
+
+### BLE Inner Header Byte Layout
 
 **Inner header byte layout** (66 bytes, all little-endian):
 
@@ -221,8 +221,8 @@ framing (16-byte outer + 66-byte inner header). The companion Side Service uses
 When the outer 16-byte header is prepended, the payload starts at byte 82.
 
 **ZML response wrapping**: `BaseSideService`'s `onRequest(req, res)` callback calls
-`res(null, data)` which serialises the BLE JSON as `{"result": data}`. The companion
-page must unwrap `msg.result` to get the actual response payload.
+`res(null, data)` which serialises the BLE JSON as `{"result": data}`. The
+watchface must unwrap `msg.result` to get the actual response payload.
 
 ### Settings App ↔ Side Service (settingsStorage)
 
@@ -329,6 +329,10 @@ The watchface receives pre-computed display values; it does not perform any calc
 - **Loading indicator**: A spinner is shown in the glucose zone during every
   BLE fetch (not just initial load). Old glucose data is hidden while fetching
   to avoid displaying potentially stale medical data.
+- **Staleness check**: The Dexcom reading's `WT` (wall time) timestamp is parsed.
+  Readings older than 10 minutes are treated as stale — the watchface displays
+  `---` in gray. Readings between 5 and 10 minutes old are shown with gray
+  color (instead of the normal green/red range color) to indicate aging data.
 - **Credentials**: Dexcom username/password are read from `settingsStorage` and used
   only for the Dexcom Share API. They are **never** sent over BLE to the watch —
   only the computed glucose result is transmitted.

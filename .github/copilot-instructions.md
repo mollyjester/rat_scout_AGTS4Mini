@@ -29,7 +29,7 @@ The GTS 4 Mini firmware runs API 1.0. The zeus bundler compiles `import` stateme
 | `hmUI` | Widget creation and properties |
 | `hmSensor` | Sensor access |
 | `hmBle` | Bluetooth messaging |
-| `hmFS` | File system (read settings JSON) |
+| `hmFS` | File system |
 | `hmApp` | App info (`hmApp.packageInfo().appId`) |
 | `WatchFace({})` | Watchface entry point |
 | `Page({})` | App page entry point |
@@ -125,10 +125,9 @@ companion_app/          — Settings companion (appId 1000090)
   app.json              — Manifest (appType "app")
   app.js                — Minimal entry
   package.json          — @zeppos/zml dependency
-  page/index.js         — Watch page: BLE + hmFS
+  page/index.js         — Watch page: stub (informational message only)
   app-side/index.js     — Phone service: settings + data fetching
-                          Handles getSettings (companion page) and
-                          fetchAll (watchface) requests
+                          Handles fetchAll (watchface) requests
                           Reads settings from settingsLib (settingsStorage)
                           directly — no file transfer needed
                           Computes: weekday, glucose color,
@@ -167,7 +166,8 @@ Latitude/longitude auto-detected from IP (ip-api.com / ipapi.co) — not in sett
 - Displays value + trend arrow (e.g. `"142 ↗"`), centered below time
 - Trend arrows: `↑↑`, `↑`, `↗`, `→`, `↘`, `↓`, `↓↓`, `?`, `⚠` mapped from Dexcom `Trend` field
 - Loading spinner shown in glucose zone during every BLE fetch (hides old data)
-- Color: green (72–180 mg/dL), red (>180 or <72), gray (error)
+- Staleness check: readings older than 10 minutes (based on Dexcom `WT` timestamp) are discarded; watchface shows `---` in gray. Readings 5–10 minutes old are shown in gray color.
+- Color: green (72–180 mg/dL), red (>180 or <72), gray (error/stale/aging)
 
 ### Weather (OpenWeatherMap)
 - Fetches current weather + 5-day/3h forecast
@@ -207,7 +207,7 @@ register side services for `appType: "watchface"` packages (appId 1000089's side
 service never launches).
 
 The companion's Side Service uses `@zeppos/zml` `BaseSideService` for BLE handling
-and handles both `getSettings` (from companion page) and `fetchAll` (from watchface).
+and handles `fetchAll` (from watchface) requests.
 The Side Service reads settings directly from `settingsLib` (`settingsStorage`) for
 all API calls — no settings are passed in the BLE request.
 
@@ -220,7 +220,9 @@ Both check `Date.now() - _lastFetchTime >= 5 min` before fetching.
 On fetch: sets `_bleConnected = false`, re-shakes, and on reply sends `fetchAll`.
 
 ### Companion Page ↔ Companion Side Service
-Same binary framing (16-byte outer + 66-byte inner). Side Service uses `@zeppos/zml` `BaseSideService` (internally uses `messaging.peerSocket`). ZML wraps `res(null, data)` as `{ result: data }` in BLE JSON — page must unwrap `msg.result`.
+The companion page is a **stub** — it displays an informational message only.
+Settings are configured in the Zepp phone app and read by the Side Service
+directly from `settingsStorage`. ZML wraps `res(null, data)` as `{ result: data }` in BLE JSON — page must unwrap `msg.result`.
 
 ### Settings flow
 1. User configures settings in Zepp App (companion's Settings App UI)
