@@ -97,27 +97,19 @@ function buildStatusBar() {
   R.umbrella = mkw(hmUI.widget.IMG, { x: 47, y: 5, w: 32, h: 32, src: 'images/umbrella_32_off.png' })
 
   // Garbage bag icons — all 3 always visible, switch between off/on
-  R.bagOrganic = mkw(hmUI.widget.IMG, { x: 79, y: 5, w: 32, h: 32, src: 'images/organic_32_off.png' })
-  R.bagGrey    = mkw(hmUI.widget.IMG, { x: 111, y: 5, w: 32, h: 32, src: 'images/greybag_32_off.png' })
-  R.bagBlack   = mkw(hmUI.widget.IMG, { x: 143, y: 5, w: 32, h: 32, src: 'images/blackbag_32_off.png' })
+  R.bagOrganic = mkw(hmUI.widget.IMG, { x: 95, y: 5, w: 32, h: 32, src: 'images/organic_32_off.png' })
+  R.bagGrey    = mkw(hmUI.widget.IMG, { x: 127, y: 5, w: 32, h: 32, src: 'images/greybag_32_off.png' })
+  R.bagBlack   = mkw(hmUI.widget.IMG, { x: 159, y: 5, w: 32, h: 32, src: 'images/blackbag_32_off.png' })
 
-  // Weekday
+  // Weekday — centered between last garbage icon and battery bar
   R.weekday = mkw(hmUI.widget.TEXT, {
-    x: 177, y: 2, w: 30, h: 38,
+    x: 191, y: 2, w: 68, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
+    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     text: '---',
   })
 
-  // Battery percentage — top right (inset for 80px rounding)
-  R.batPct = mkw(hmUI.widget.TEXT, {
-    x: 205, y: 2, w: 52, h: 38,
-    color: C_GRAY, text_size: FS_SMALL,
-    align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
-    text: '--%',
-  })
-
-  // Battery bar background + fill — right of percentage
+  // Battery bar background + fill — top right
   mkw(hmUI.widget.FILL_RECT, { x: 259, y: 13, w: 28, h: 16, color: C_DKGRAY, radius: 2 })
   R.batBar = mkw(hmUI.widget.FILL_RECT, {
     x: 260, y: 14, w: 26, h: 14, color: C_GREEN, radius: 1,
@@ -238,8 +230,6 @@ function updateBattery() {
   try {
     var lvl = _bat.current
     if (lvl === undefined || lvl === null) return
-    setp(R.batPct, hmUI.prop.TEXT, lvl + '%')
-    var color = lvl > 50 ? C_GREEN : lvl > 20 ? C_YELLOW : C_RED
     setp(R.batBar, hmUI.prop.MORE, { color: color, w: Math.max(2, Math.round(26 * lvl / 100)) })
   } catch (e) {}
 }
