@@ -368,7 +368,7 @@ function parseDays(csv) {
   return new Set(csv.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)))
 }
 
-function computeGarbageBag() {
+function computeGarbageBags() {
   try {
     const now  = new Date()
     let wday   = (now.getDay() + 6) % 7
@@ -382,12 +382,13 @@ function computeGarbageBag() {
     const grey    = parseDays(getSetting('garbage_grey', ''))
     const black   = parseDays(getSetting('garbage_black', ''))
 
-    if (organic.has(wday)) return 'O'
-    if (grey.has(wday))    return 'G'
-    if (black.has(wday))   return 'B'
-    return null
+    return {
+      organic: organic.has(wday),
+      grey:    grey.has(wday),
+      black:   black.has(wday),
+    }
   } catch (e) {
-    return null
+    return { organic: false, grey: false, black: false }
   }
 }
 
@@ -476,7 +477,7 @@ async function fetchAll() {
     withRetry(() => fetchWeather(lat, lon), 'weather'),
   ])
 
-  const bag = computeGarbageBag()
+  const bags = computeGarbageBags()
 
   // Weekday string computed here so watchface does no calculations
   const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
@@ -492,7 +493,7 @@ async function fetchAll() {
     } : null,
     weather:  weather || null,
     settings: {
-      garbageBag: bag || null,
+      garbage: bags,
     },
   }
 }

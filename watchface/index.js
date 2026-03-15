@@ -36,8 +36,7 @@ var FS_GLUC  = 48
 var FS_DATE  = 34
 var FS_SMALL = 20
 
-// ── Garbage bag images ────────────────────────────────────────────────────────
-var BAG_IMGS = { O: 'images/organicbag.png', G: 'images/greybag.png', B: 'images/blackbag.png' }
+// ── Garbage bag images (on/off variants) ─────────────────────────────────────
 
 // ── Widget refs (populated in build functions) ────────────────────────────────
 var R = {}
@@ -97,13 +96,14 @@ function buildStatusBar() {
   // Umbrella icon — always visible, first in status bar
   R.umbrella = mkw(hmUI.widget.IMG, { x: 47, y: 5, w: 32, h: 32, src: 'images/umbrella_32_off.png' })
 
-  // Garbage bag icon (hidden by default)
-  R.garbage = mkw(hmUI.widget.IMG, { x: 81, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
-  setp(R.garbage, hmUI.prop.VISIBLE, false)
+  // Garbage bag icons — all 3 always visible, switch between off/on
+  R.bagOrganic = mkw(hmUI.widget.IMG, { x: 79, y: 5, w: 32, h: 32, src: 'images/organic_32_off.png' })
+  R.bagGrey    = mkw(hmUI.widget.IMG, { x: 111, y: 5, w: 32, h: 32, src: 'images/greybag_32_off.png' })
+  R.bagBlack   = mkw(hmUI.widget.IMG, { x: 143, y: 5, w: 32, h: 32, src: 'images/blackbag_32_off.png' })
 
   // Weekday
   R.weekday = mkw(hmUI.widget.TEXT, {
-    x: 115, y: 2, w: 60, h: 38,
+    x: 177, y: 2, w: 30, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '---',
@@ -282,12 +282,10 @@ function applyWeather(msg) {
 function applySettings(msg) {
   if (!msg) return
   try {
-    if (msg.garbageBag && BAG_IMGS[msg.garbageBag]) {
-      setp(R.garbage, hmUI.prop.SRC, BAG_IMGS[msg.garbageBag])
-      setp(R.garbage, hmUI.prop.VISIBLE, true)
-    } else {
-      setp(R.garbage, hmUI.prop.VISIBLE, false)
-    }
+    var g = msg.garbage || {}
+    setp(R.bagOrganic, hmUI.prop.SRC, g.organic ? 'images/organic_32_on.png' : 'images/organic_32_off.png')
+    setp(R.bagGrey,    hmUI.prop.SRC, g.grey    ? 'images/greybag_32_on.png' : 'images/greybag_32_off.png')
+    setp(R.bagBlack,   hmUI.prop.SRC, g.black   ? 'images/blackbag_32_on.png' : 'images/blackbag_32_off.png')
   } catch (e) {}
 }
 
