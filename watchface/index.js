@@ -4,7 +4,7 @@
  * Reimplementation of https://github.com/mollyjester/rat_scout
  *
  * Layout (portrait 336×384, 80px corner rounding):
- *   y=  0  h=42   Status bar: garbage bag + weekday (left) | battery % + bar (right)
+ *   y=  0  h=42   Status bar: umbrella + garbage bag + weekday (left) | battery % + bar (right)
  *   y= 44  h=34   Date zone (DD.MM | Wnn) — above time
  *   y= 78  h=90   Time (HH:MM, 80pt, left-aligned)
  *   y=170  h=50   Glucose zone (left half, left-aligned)
@@ -94,13 +94,16 @@ function hideGlucoseLoading() {
 function buildStatusBar() {
   mkw(hmUI.widget.FILL_RECT, { x: 0, y: 0, w: W, h: 42, color: C_BAR, radius: 0 })
 
+  // Umbrella icon — always visible, first in status bar
+  R.umbrella = mkw(hmUI.widget.IMG, { x: 47, y: 5, w: 32, h: 32, src: 'images/umbrella_32_off.png' })
+
   // Garbage bag icon (hidden by default)
-  R.garbage = mkw(hmUI.widget.IMG, { x: 15, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
+  R.garbage = mkw(hmUI.widget.IMG, { x: 81, y: 5, w: 32, h: 32, src: 'images/organicbag.png' })
   setp(R.garbage, hmUI.prop.VISIBLE, false)
 
   // Weekday
   R.weekday = mkw(hmUI.widget.TEXT, {
-    x: 51, y: 2, w: 60, h: 38,
+    x: 115, y: 2, w: 60, h: 38,
     color: C_WHITE, text_size: FS_SMALL,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '---',
@@ -108,16 +111,16 @@ function buildStatusBar() {
 
   // Battery percentage — top right (inset for 80px rounding)
   R.batPct = mkw(hmUI.widget.TEXT, {
-    x: 220, y: 2, w: 52, h: 38,
+    x: 205, y: 2, w: 52, h: 38,
     color: C_GRAY, text_size: FS_SMALL,
     align_h: hmUI.align.RIGHT, align_v: hmUI.align.CENTER_V,
     text: '--%',
   })
 
   // Battery bar background + fill — right of percentage
-  mkw(hmUI.widget.FILL_RECT, { x: 274, y: 13, w: 28, h: 16, color: C_DKGRAY, radius: 2 })
+  mkw(hmUI.widget.FILL_RECT, { x: 259, y: 13, w: 28, h: 16, color: C_DKGRAY, radius: 2 })
   R.batBar = mkw(hmUI.widget.FILL_RECT, {
-    x: 275, y: 14, w: 26, h: 14, color: C_GREEN, radius: 1,
+    x: 260, y: 14, w: 26, h: 14, color: C_GREEN, radius: 1,
   })
 }
 
@@ -169,10 +172,6 @@ function buildGlucoseZone() {
 }
 
 function buildWeatherRow() {
-  // Umbrella icon (hidden by default) — shown overlapping temp icon when needed
-  R.umbrella = mkw(hmUI.widget.IMG, { x: 15, y: 224, w: 32, h: 32, src: 'images/umbrella.png' })
-  setp(R.umbrella, hmUI.prop.VISIBLE, false)
-
   // Temperature (y=224)
   mkw(hmUI.widget.IMG, { x: 15, y: 226, w: 22, h: 32, src: 'images/temperature.png' })
   R.temp = mkw(hmUI.widget.TEXT, {
@@ -275,7 +274,7 @@ function applyWeather(msg) {
     if (msg.temp !== undefined) setp(R.temp, hmUI.prop.TEXT, msg.temp + (msg.tempUnit || ''))
     if (msg.wind !== undefined) setp(R.wind, hmUI.prop.TEXT, msg.wind + (msg.windUnit || ''))
     if (msg.needsUmbrella !== undefined) {
-      setp(R.umbrella, hmUI.prop.VISIBLE, !!msg.needsUmbrella)
+      setp(R.umbrella, hmUI.prop.SRC, msg.needsUmbrella ? 'images/umbrella_32_on.png' : 'images/umbrella_32_off.png')
     }
   } catch (e) {}
 }
