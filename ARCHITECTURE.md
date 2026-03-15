@@ -141,9 +141,9 @@ setting/index.js        — Settings App stub (unreachable — Zepp App doesn't
 
 assets/gts4mini/
   icon.png              — App icon
-  images/               — PNG icons (16 files):
-                          Moon phases (8), garbage bags (3), weather (4),
-                          steps, umbrella
+  images/               — PNG icons (20 files):
+                          bg, garbage bags on/off (6), weather icons (3),
+                          umbrella on/off (2), loading frames (8), steps
 ```
 
 ### Companion App (`companion_app/` — appId 1000090)

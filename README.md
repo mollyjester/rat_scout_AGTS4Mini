@@ -68,7 +68,7 @@ This project consists of **two Zepp OS packages**:
 ├── watchface/index.js         ← Watch UI (API 1.0 globals)
 ├── app-side/index.js          ← Phone service: data fetching (Dexcom, weather, etc.)
 ├── setting/index.js           ← (stub — watchfaces can't show settings)
-├── assets/gts4mini/images/    ← 16 PNG icons
+├── assets/gts4mini/images/    ← 20 PNG icons
 ├── ARCHITECTURE.md            ← Detailed architecture docs
 │
 └── companion_app/             ← Settings companion (appId 1000090)
