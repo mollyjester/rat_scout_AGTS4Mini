@@ -243,8 +243,8 @@ async function fetchGlucose() {
 
 function glucoseColor(rawMgdl) {
   if (rawMgdl == null || isNaN(rawMgdl)) return 0x888888
-  if (rawMgdl > 180) return 0xFF8C00
-  if (rawMgdl < 70)  return 0xFF3030
+  if (rawMgdl > 180) return 0xFF5555
+  if (rawMgdl < 72)  return 0xFF5555
   return 0x44FF44
 }
 

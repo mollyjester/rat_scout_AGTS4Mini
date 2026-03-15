@@ -6,8 +6,8 @@
  * Layout (portrait 336×384, 80px corner rounding):
  *   y=  0  h=42   Status bar: umbrella + garbage bag + weekday (left) | battery % + bar (right)
  *   y= 44  h=34   Date zone (DD.MM | Wnn) — above time
- *   y= 78  h=90   Time (HH:MM, 80pt, left-aligned)
- *   y=170  h=50   Glucose zone (left half, left-aligned)
+ *   y= 72  h=96   Time (HH:MM, 80pt gold, left-aligned)
+ *   y=170  h=44   Glucose zone (capsule background + centered text)
  *   y=224  h=36   Temperature row (icon + value)
  *   y=260  h=36   Wind row (icon + value)
  *   y=296  h=36   Steps row (icon + count)
@@ -28,10 +28,10 @@ var C_GREEN  = 0x44FF44
 var C_GRAY   = 0x888888
 var C_DKGRAY = 0x333333
 var C_BAR    = 0x141414
-var C_TIME   = 0x343e9f
+var C_TIME   = 0xDDAA20
 
 // ── Font sizes ────────────────────────────────────────────────────────────────
-var FS_TIME  = 70
+var FS_TIME  = 80
 var FS_GLUC  = 40
 var FS_DATE  = 28
 var FS_SMALL = 20
@@ -126,7 +126,7 @@ function buildDateZone() {
 
   R.week = mkw(hmUI.widget.TEXT, {
     x: 140, y: 44, w: 80, h: 34,
-    color: C_GRAY, text_size: FS_DATE,
+    color: C_WHITE, text_size: FS_DATE,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: 'W--',
   })
@@ -134,7 +134,7 @@ function buildDateZone() {
 
 function buildTimeZone() {
   R.time = mkw(hmUI.widget.TEXT, {
-    x: 15, y: 70, w: W - 15, h: 90,
+    x: 15, y: 72, w: W - 15, h: 96,
     color: C_TIME, text_size: FS_TIME,
     align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
     text: '--:--',
@@ -142,23 +142,28 @@ function buildTimeZone() {
 }
 
 function buildGlucoseZone() {
+  // Capsule background
+  R.glucoseCapsule = mkw(hmUI.widget.FILL_RECT, {
+    x: 10, y: 174, w: 145, h: 44, color: 0x505858, radius: 14,
+  })
+
   R.glucose = mkw(hmUI.widget.TEXT, {
-    x: 15, y: 160, w: Math.floor(W / 2), h: 50,
+    x: 10, y: 170, w: 145, h: 44,
     color: C_GREEN, text_size: FS_GLUC,
-    align_h: hmUI.align.LEFT, align_v: hmUI.align.CENTER_V,
+    align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     text: '',
   })
 
-  // Loading indicator — left half
+  // Loading indicator — centered in capsule
   R.glucoseLoading = mkw(hmUI.widget.IMG_ANIM, {
-    x: 15, y: 179, w: 32, h: 32,
+    x: 73, y: 176, w: 32, h: 32,
     anim_path: 'images', anim_prefix: 'loading', anim_ext: 'png',
     anim_fps: 4, anim_size: 8, repeat_count: 0,
     anim_status: hmUI.anim_status.START,
   })
   if (!R.glucoseLoading) {
     R.glucoseLoading = mkw(hmUI.widget.IMG, {
-      x: 15, y: 179, w: 32, h: 32, src: 'images/loading_0.png',
+      x: 73, y: 176, w: 32, h: 32, src: 'images/loading_0.png',
     })
   }
 }
